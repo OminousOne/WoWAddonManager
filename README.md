@@ -37,6 +37,6 @@ npm test
 npm run package
 ```
 
-The packages are written to `dist/`. The GitHub Actions **Desktop builds** workflow builds the Linux x64 AppImage, macOS DMGs for Apple Silicon and Intel, and the Windows x64 installer. It then launches each packaged app against temporary Retail and Classic libraries. Download installers from the workflow run's artifacts.
+The packages are written to `dist/`. The GitHub Actions **Desktop builds** workflow builds Linux x64 AppImage and Debian packages, macOS DMGs for Apple Silicon and Intel, and the Windows x64 installer. It then launches each packaged app against temporary Retail and Classic libraries. Download installers from the workflow run's artifacts.
 
-The macOS builds use ad-hoc signing and are not notarized. The Windows installer has no publisher signature.
+On Debian or Ubuntu, use the `.deb` if your system restricts user namespaces for AppImages. The macOS builds use ad-hoc signing and are not notarized. The Windows installer has no publisher signature.

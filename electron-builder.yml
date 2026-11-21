@@ -18,4 +18,6 @@ win:
   target: nsis
 linux:
   category: Utility
-  target: AppImage
+  target: [AppImage, deb]
+deb:
+  maintainer: Julien DeWolfe <JulienDeWolfe@protonmail.com>

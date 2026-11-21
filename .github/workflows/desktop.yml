@@ -23,7 +23,9 @@ jobs:
           - name: Linux x64
             runner: ubuntu-24.04
             command: xvfb-run -a npm run smoke -- dist/linux-unpacked/addon-ledger
-            artifact: dist/*.AppImage
+            artifact: |
+              dist/*.AppImage
+              dist/*.deb
           - name: macOS Apple Silicon
             runner: macos-15
             command: npm run smoke -- "dist/mac-arm64/AddOn Ledger.app/Contents/MacOS/AddOn Ledger"
@@ -48,6 +50,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run package
+      - name: Configure the Linux sandbox helper for the unpacked smoke test
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
       - name: Smoke test the packaged desktop app
         run: ${{ matrix.command }}
       - uses: actions/upload-artifact@v7.0.2

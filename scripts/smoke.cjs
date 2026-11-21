@@ -69,7 +69,9 @@ async function smoke() {
     app.stderr.on('data', (data) => { logs = (logs + data).slice(-8000); });
     try {
       const port = await retry(async () => {
-        if (app.exitCode !== null) throw new Error(`Electron exited with code ${app.exitCode}\n${logs}`);
+        if (app.exitCode !== null || app.signalCode !== null) {
+          throw new Error(`Electron exited with ${app.signalCode || app.exitCode}\n${logs}`);
+        }
         const details = await fs.readFile(path.join(userData, 'DevToolsActivePort'), 'utf8');
         return Number(details.split('\n')[0]);
       });
