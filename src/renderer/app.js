@@ -6,10 +6,10 @@ const state = {
   installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
   updateResults: new Map(), checking: false, checkId: 0, project: null, catalogScroll: 0,
 };
-const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', local: 'ZIP import' };
+const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', wowup: 'WowUp Hub', local: 'ZIP import' };
 const pages = {
   library: ['My AddOns', 'Addons installed for the selected WoW client.'],
-  catalog: ['Discover', 'Find compatible addons for the selected WoW client.'],
+  catalog: ['Discover', 'Search for addons and check which releases support the selected WoW client.'],
   sources: ['Sources', 'Manage the catalogs available in Discover.'],
 };
 
@@ -298,17 +298,25 @@ function updateAll() {
 function renderCatalog(client) {
   const items = state.catalog?.items;
   const results = $('#catalog-results');
+  const curseForgeSearch = state.catalog?.curseForgeSearch;
   $('#query').disabled = !client || state.busy;
   $('#source').disabled = !client || state.busy;
   $('#source').querySelector('[value=curseforge]').disabled = !state.curseforge;
   $('#search-button').disabled = !client || state.busy;
   if (!client) {
-    results.replaceChildren(empty('Choose a WoW installation', 'Search uses your selected installation to find compatible addons.',
+    results.replaceChildren(empty('Choose a WoW installation', 'Choose the installation you want to manage.',
       button('Choose WoW folder', addFolder, true)));
     return;
   }
+  results.replaceChildren();
+  if (curseForgeSearch) {
+    const external = button('Search CurseForge in browser ↗', () => run(() => api.openProject('curseforge', curseForgeSearch)));
+    external.className = 'text-button catalog-external';
+    external.disabled = state.busy;
+    results.append(external);
+  }
   if (!items?.length) {
-    results.replaceChildren(empty(
+    results.append(empty(
       state.busy ? 'Loading catalog…' : items ? 'No matching addons' : 'Find an addon',
       items ? 'Try another name or change the source.' : 'Search by name or browse popular releases.',
     ));
@@ -316,7 +324,7 @@ function renderCatalog(client) {
   }
   const grid = el('div', null, 'catalog-grid');
   grid.append(...items.map(catalogCard));
-  results.replaceChildren(grid);
+  results.append(grid);
 }
 
 function media(source, url, { alt = '', cover = false, lazy = true } = {}) {
@@ -337,7 +345,8 @@ function media(source, url, { alt = '', cover = false, lazy = true } = {}) {
 
 function catalogInstall(item) {
   const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
-  const action = button(installed ? 'Installed' : item.canInstall ? 'Install' : 'Unavailable', () => run(async () => {
+  const availability = item.isCompatible === false ? 'No compatible release' : 'Unavailable';
+  const action = button(installed ? 'Installed' : item.canInstall ? 'Install' : availability, () => run(async () => {
     if (await api.install(state.selection, item.source, item.id)) {
       await readAddons();
       notify(`${item.title} installed.`);

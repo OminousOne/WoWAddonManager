@@ -4,16 +4,18 @@ const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { convert } = require('html-to-text');
 
-const sources = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge' };
+const sources = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', wowup: 'WowUp Hub' };
 const websiteHosts = {
   wowinterface: ['www.wowinterface.com', 'wowinterface.com'],
   tukui: ['tukui.org', 'www.tukui.org'],
   curseforge: ['www.curseforge.com', 'curseforge.com'],
+  wowup: ['wowup.io', 'www.wowup.io'],
 };
 const imageHosts = {
   wowinterface: ['cdn-wow.mmoui.com', 'cdn.wowinterface.com', 'www.wowinterface.com'],
   tukui: ['storage.tukui.org'],
   curseforge: ['media.forgecdn.net', 'mediafilez.forgecdn.net', 'edge.forgecdn.net'],
+  wowup: ['repository-images.githubusercontent.com', 'avatars.githubusercontent.com', 'raw.githubusercontent.com', 'gitlab.com'],
 };
 const imageLimit = 6 * 1024 ** 2;
 const catalogLimit = 20 * 1024 ** 2;
@@ -21,6 +23,8 @@ const archiveLimit = 128 * 1024 ** 2;
 const wowi = 'https://api.mmoui.com/v3/game/WOW';
 const tukui = 'https://api.tukui.org/v1';
 const forge = 'https://api.curseforge.com/v1';
+const hub = 'https://hub.wowup.io/addons';
+const hubDownloads = ['github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com', 'gitlab.com'];
 
 function sourceUrl(hosts, input) {
   if (typeof input !== 'string' || input.length > 2048) return null;
@@ -60,6 +64,28 @@ function compatible(versions, client) {
     // Classic Progression releases for different expansions are not interchangeable.
     return track !== 'progression' || !client.version || majorText === client.version.split('.')[0];
   });
+}
+
+function forClient(entry, versions, client) {
+  const isCompatible = compatible(versions, client);
+  return { ...entry, isCompatible, canInstall: isCompatible && entry.canInstall };
+}
+
+function matchesQuery(needle, ...fields) {
+  return !needle || fields.some((field) => field?.toLowerCase().includes(needle));
+}
+
+function interfaceVersion(input) {
+  const value = Number(input);
+  if (!Number.isSafeInteger(value) || value < 10000) return null;
+  return [Math.floor(value / 10000), Math.floor(value / 100) % 100, value % 100].join('.');
+}
+
+function hubGame({ edition, version }) {
+  if (edition === 'progression') {
+    return { 3: 'wotlk', 4: 'cata', 5: 'mists' }[version?.split('.')[0]] || 'mists';
+  }
+  return { era: 'classic', anniversary: 'burningCrusade', titan: 'wotlk', forever: 'forever' }[edition] || 'retail';
 }
 
 async function get(url, label, { hosts, headers = () => ({}), limit = catalogLimit, fetcher } = {}) {
@@ -169,28 +195,54 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     ...(item.latestFiles || []).filter((file) => file.releaseType === 1).flatMap((file) => file.gameVersions || []),
   ];
 
+  function hubFiles(item) {
+    return (item.releases || []).filter((file) => !file.prerelease && sourceUrl(hubDownloads, file.download_url))
+      .map((file) => ({
+        ...file, versions: (file.game_versions || []).flatMap((tag) => tag.interfaces || [tag.interface])
+          .map(interfaceVersion).filter(Boolean),
+      })).sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+  }
+
+  function hubRelease(files, client) {
+    return files.find((file) => compatible(file.versions, client));
+  }
+
+  function hubEntry(item, file) {
+    const isCompatible = Boolean(file);
+    return { ...publicEntry('wowup', {
+      id: item.id, title: item.repository_name, author: item.owner_name, url: `https://wowup.io/addons/${item.id}`,
+      image: item.image_url || item.owner_image_url, downloads: item.total_download_count, canInstall: isCompatible,
+    }), isCompatible };
+  }
+
   async function getWowiListing(id) {
     const list = await cached(`${wowi}/filelist.json`, 'wowinterface');
     return list.find((item) => String(item.UID) === id);
   }
 
   async function searchSource(source, query, client) {
+    const needle = query.toLowerCase();
     if (source === 'wowinterface') {
       const list = await cached(`${wowi}/filelist.json`, source);
-      return list.filter((item) => compatible(wowiVersions(item), client))
-        .map(wowiEntry);
+      return list.filter((item) => matchesQuery(needle, item.UIName, item.UIAuthorName))
+        .map((item) => forClient(wowiEntry(item), wowiVersions(item), client));
     }
     if (source === 'tukui') {
       const list = await cached(`${tukui}/addons`, source);
-      return list.filter((item) => compatible(item.patch, client))
-        .map(tukuiEntry);
+      return list.filter((item) => matchesQuery(needle, item.name, item.author, item.small_desc))
+        .map((item) => forClient(tukuiEntry(item), item.patch, client));
+    }
+    if (source === 'wowup') {
+      const game = hubGame(client);
+      const path = query ? `search/${game}?${new URLSearchParams({ query, limit: '50' })}` : `featured/${game}?count=60`;
+      const { addons } = await json(`${hub}/${path}`, source);
+      return addons.map((item) => hubEntry(item, hubRelease(hubFiles(item), client)));
     }
     const params = new URLSearchParams({ gameId: '432', searchFilter: query, pageSize: '50', sortField: '2', sortOrder: 'desc' });
-    // Retail has a documented CurseForge type; other clients are filtered by the file metadata.
-    if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
+    if (!query && client.edition === 'retail') params.set('gameVersionTypeId', '517');
     const { data } = await json(`${forge}/mods/search?${params}`, source);
-    return data.filter((item) => item.gameId === 432 && compatible(forgeVersions(item), client))
-      .map(forgeEntry);
+    return data.filter((item) => item.gameId === 432)
+      .map((item) => forClient(forgeEntry(item), forgeVersions(item), client));
   }
 
   async function search(query, source, client) {
@@ -202,18 +254,27 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     const needle = query.toLowerCase();
     outcomes.forEach((outcome, index) => {
       if (outcome.status === 'fulfilled') {
-        items.push(...outcome.value.filter((item) => selected[index] === 'curseforge'
-          || [item.title, item.author, item.summary].some((field) => field?.toLowerCase().includes(needle))));
+        items.push(...(needle ? outcome.value : outcome.value.filter((item) => item.isCompatible)));
       } else {
         warnings.push(`${sources[selected[index]]} is unavailable. Try searching again later.`);
       }
     });
     const rank = (item) => item.title.toLowerCase() === needle ? 2 : item.title.toLowerCase().startsWith(needle) ? 1 : 0;
-    items.sort((a, b) => rank(b) - rank(a) || b.downloads - a.downloads || a.title.localeCompare(b.title));
-    return { items: items.slice(0, 60), warnings };
+    items.sort((a, b) => rank(b) - rank(a) || Number(b.isCompatible) - Number(a.isCompatible)
+      || b.downloads - a.downloads || a.title.localeCompare(b.title));
+    const curseForgeSearch = query && source === 'all' && !key
+      ? `https://www.curseforge.com/wow/search?${new URLSearchParams({ class: 'addons', search: query })}`
+      : null;
+    return { items: items.slice(0, 60), warnings, curseForgeSearch };
   }
 
   async function release(source, id, client) {
+    if (source === 'wowup' && /^\d{1,12}$/.test(id)) {
+      const { addon } = await cached(`${hub}/${id}`, source);
+      const file = hubRelease(hubFiles(addon), client);
+      if (file) return { source, id, title: addon.repository_name, version: file.name || file.tag_name,
+        time: Date.parse(file.published_at), revision: String(file.id), url: file.download_url };
+    }
     if (source === 'wowinterface' && /^\d{1,12}$/.test(id)) {
       const entry = await getWowiListing(id);
       if (!compatible(wowiVersions(entry || {}), client)) {
@@ -261,28 +322,39 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
   }
 
   async function project(source, id, client) {
+    if (source === 'wowup' && /^\d{1,12}$/.test(id)) {
+      const { addon } = await cached(`${hub}/${id}`, source);
+      const files = hubFiles(addon);
+      const latest = hubRelease(files, client);
+      const changelog = latest?.body || (latest && await cached(`${hub}/${id}/releases/${latest.id}`, source)
+        .then(({ release }) => release.body).catch(() => ''));
+      return { ...hubEntry(addon, latest), description: webText(addon.description), changelog: webText(changelog),
+        versions: [...new Set(files.flatMap((file) => file.versions))], version: latest?.name || latest?.tag_name,
+        time: Date.parse(latest?.published_at), screenshots: images(source, (latest?.previews || []).map(({ url }) => url)),
+      };
+    }
     if (source === 'wowinterface' && /^\d{1,12}$/.test(id)) {
       const [entry, detail] = await Promise.all([
         getWowiListing(id),
         json(`${wowi}/filedetails/${id}.json`, source).then((items) => items[0]),
       ]);
-      if (entry && detail) return { ...wowiEntry(entry),
+      if (entry && detail) return forClient({ ...wowiEntry(entry),
         description: forumText(detail.UIDescription), changelog: forumText(detail.UIChangeLog),
         versions: wowiVersions(entry), version: detail.UIVersion, time: Number(detail.UIDate),
         screenshots: images(source, entry.UIIMGs || []),
-        canInstall: Boolean(detail.UIDownload) && compatible(wowiVersions(entry), client),
-      };
+        canInstall: Boolean(detail.UIDownload),
+      }, wowiVersions(entry), client);
     }
     if (source === 'tukui' && /^(elvui|tukui)$/.test(id)) {
       const [item, changelog] = await Promise.all([
         json(`${tukui}/addon/${id}`, source),
         fetchText(`${tukui}/changelog/${id}`, source).catch(() => ''),
       ]);
-      return { ...tukuiEntry(item), description: item.desc, changelog,
+      return forClient({ ...tukuiEntry(item), description: item.desc, changelog,
         versions: item.patch, version: item.version, time: Date.parse(item.last_update),
         screenshots: images(source, [item.screenshot_url, ...(item.gallery_url || [])]),
-        canInstall: Boolean(item.url) && compatible(item.patch, client),
-      };
+        canInstall: Boolean(item.url),
+      }, item.patch, client);
     }
     if (source === 'curseforge' && /^\d{1,12}$/.test(id)) {
       if (!key) throw new Error('Add a CurseForge API key in Sources to use CurseForge.');
@@ -297,11 +369,11 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
       const changelog = latest ? await json(`${endpoint}/files/${latest.id}/changelog`, source)
         .then(({ data }) => webText(data)).catch(() => '') : '';
       const entry = forgeEntry(mod);
-      return { ...entry, description: description || entry.summary, changelog,
-        versions: forgeVersions(mod), version: latest?.displayName || latest?.fileName, time: Date.parse(latest?.fileDate),
+      const versions = forgeVersions(mod);
+      return forClient({ ...entry, description: description || entry.summary, changelog,
+        versions, version: latest?.displayName || latest?.fileName, time: Date.parse(latest?.fileDate),
         screenshots: images(source, (mod.screenshots || []).map(({ url }) => url)),
-        canInstall: entry.canInstall && compatible(forgeVersions(mod), client),
-      };
+      }, versions, client);
     }
     throw new Error('This addon project is unavailable.');
   }
@@ -311,6 +383,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
       wowinterface: ['cdn.wowinterface.com', 'www.wowinterface.com', 'cdn-wow.mmoui.com', 'downloads.wowinterface.com'],
       tukui: ['api.tukui.org'],
       curseforge: ['edge.forgecdn.net', 'media.forgecdn.net', 'mediafilez.forgecdn.net'],
+      wowup: hubDownloads,
     }[file.source];
     const response = await get(file.url, sources[file.source], {
       fetcher, hosts, limit: archiveLimit,

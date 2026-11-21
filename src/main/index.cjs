@@ -146,7 +146,7 @@ if (!app.requestSingleInstanceLock()) {
     handle('addons:list', async (_event, id) => library.list(await requireInstallation(id)));
     handle('addons:updates', async (_event, id) => library.updates(await requireInstallation(id), catalog));
     handle('addons:change', async (_event, id, key, action) => {
-      if (typeof key !== 'string' || !/^(wowinterface|tukui|curseforge|local):[a-z0-9-]{1,50}$/.test(key)) {
+      if (typeof key !== 'string' || !/^(wowinterface|tukui|curseforge|wowup|local):[a-z0-9-]{1,50}$/.test(key)) {
         throw new Error('Select an installed addon.');
       }
       const client = await requireInstallation(id);
