@@ -64,3 +64,17 @@ td small { display: block; color: var(--muted); margin-top: 4px; font-weight: 40
 .empty .button { margin-top: 19px; }
 .empty-mark { color: var(--gold); background: var(--gold-wash); border: 1px solid #554438; border-radius: 14px; width: 48px; height: 48px; display: grid; place-items: center; font-size: 26px; }
 .notice { border: 1px solid #554438; background: var(--gold-wash); color: #ffdfb0; border-radius: 8px; padding: 10px 13px; margin-bottom: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#catalog-form { justify-content: flex-start; }
+#catalog-form .search { flex: 1; }
+#source { width: auto; max-width: 165px; margin-left: auto; }
+.summary { line-height: 1.45; }
+.warning { color: var(--gold); }
+.source-settings article { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; }
+.source-settings article + article { border-top: 1px solid var(--line); }
+.source-settings h2 { font-size: 16px; margin: 0; }
+.source-settings p { color: var(--muted); margin: 6px 0 0; line-height: 1.5; }
+.source-settings form { margin-top: 15px; }
+.source-settings label { display: block; color: var(--muted); margin-bottom: 7px; }
+.source-settings input { min-width: 100px; width: 100%; background: #111721; color: inherit; padding: 8px; border-radius: 7px; border: 1px solid var(--line); }
+.actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.badge { display: inline-block; color: var(--gold); border-radius: 5px; background: var(--gold-wash); padding: 4px 8px; font-size: 11px; white-space: nowrap; }

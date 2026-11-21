@@ -21,6 +21,8 @@
     </div>
     <nav aria-label="Workspace">
       <button class="nav-button" id="library-tab" aria-current="page"><span aria-hidden="true">▤</span> My AddOns</button>
+      <button class="nav-button" id="catalog-tab"><span aria-hidden="true">⌕</span> Discover</button>
+      <button class="nav-button" id="sources-tab"><span aria-hidden="true">⚙</span> Sources</button>
     </nav>
     <footer class="sidebar-foot">
       <button class="nav-button" id="open-folder"><span aria-hidden="true">↗</span> Open game folder</button>
@@ -42,6 +44,36 @@
         <span id="count"></span>
       </div>
       <div id="results"></div>
+    </section>
+    <section id="catalog" class="panel" aria-labelledby="page-title" hidden>
+      <form id="catalog-form" class="toolbar">
+        <label class="search"><span aria-hidden="true">⌕</span><input id="query" type="search" maxlength="120" aria-label="Search addons" placeholder="Search addon name or author"></label>
+        <select id="source" aria-label="Addon source">
+          <option value="all">All enabled sources</option>
+          <option value="wowinterface">WoWInterface</option>
+          <option value="tukui">Tukui</option>
+          <option value="curseforge">CurseForge</option>
+        </select>
+        <button class="button primary" type="submit" id="search-button">Search</button>
+      </form>
+      <div id="catalog-results"></div>
+    </section>
+    <section id="sources" class="panel source-settings" aria-labelledby="page-title" hidden>
+      <article><div><h2>WoWInterface</h2><p>Search and install from the WoWInterface catalog.</p></div><span class="badge">Enabled</span></article>
+      <article><div><h2>Tukui</h2><p>Install ElvUI or Tukui from their official source.</p></div><span class="badge">Enabled</span></article>
+      <article>
+        <div>
+          <h2>CurseForge</h2>
+          <p>Use a CurseForge API key to search and download addons that allow third-party distribution.</p>
+          <form id="source-form">
+            <label for="api-key">CurseForge API key</label>
+            <div class="actions"><input id="api-key" type="password" maxlength="512" autocomplete="off" spellcheck="false">
+              <button type="submit" id="save-key" class="button primary">Save key</button>
+              <button type="button" id="clear-key" class="button">Clear saved key</button></div>
+          </form>
+        </div>
+        <span id="key-status" class="badge"></span>
+      </article>
     </section>
   </main>
 </body>

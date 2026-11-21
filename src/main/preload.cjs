@@ -12,5 +12,9 @@ contextBridge.exposeInMainWorld('ledger', {
   editions: request('editions:list'),
   addEdition: request('editions:add'),
   openEdition: request('editions:open'),
+  sources: request('sources:list'),
+  setCurseForgeKey: request('sources:curseforge'),
+  search: request('catalog:search'),
+  install: request('catalog:install'),
   addons: request('addons:list'),
 });
