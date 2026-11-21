@@ -212,7 +212,7 @@ async function changeAddon(addon, action) {
   return run(async () => {
     await api.changeAddon(state.selection, addon.key, action);
     await readAddons();
-    if (action === 'update' || action === 'repair') {
+    if (action === 'update') {
       const current = state.addons.find(({ key }) => key === addon.key);
       if (current) state.updateResults.set(addon.key, { revision: current.revision, status: 'current' });
     }
@@ -248,7 +248,7 @@ function showAddon(addon) {
   const actions = [];
   if (isOnline(addon)) {
     if (update?.status === 'available' && !addon.pinned) actions.push(action('Update addon', 'update', true));
-    if (update?.status !== 'available') actions.push(action('Repair', 'repair'));
+    actions.push(action('Repair', 'repair'));
     actions.push(action(addon.pinned ? 'Unpin' : 'Pin version', addon.pinned ? 'unpin' : 'pin'));
   }
   if (addon.key) {
