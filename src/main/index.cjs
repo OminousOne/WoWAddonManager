@@ -1,10 +1,12 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { openStore } = require('./store.cjs');
 const { defaultRoots, discoverInstallations } = require('./wow.cjs');
-const { newCatalog, projectPage, sources } = require('./sources.cjs');
+const { catalogImage, newCatalog, projectPage, sources } = require('./sources.cjs');
 const { createLibrary } = require('./library.cjs');
+
+protocol.registerSchemesAsPrivileged([{ scheme: 'ledger-image', privileges: { standard: true, secure: true } }]);
 
 const page = path.join(__dirname, '../renderer/index.html');
 const pageUrl = pathToFileURL(page).href;
@@ -66,6 +68,15 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     store = await openStore(app.getPath('userData'));
     const library = createLibrary(store);
+    protocol.handle('ledger-image', async (request) => {
+      try {
+        const address = new URL(request.url);
+        if (request.method !== 'GET' || !Object.hasOwn(sources, address.hostname)) return new Response(null, { status: 404 });
+        return await catalogImage(address.hostname, decodeURIComponent(address.pathname.slice(1)));
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    });
     const encrypted = store.read().curseforgeKey;
     if (encrypted && safeStorage.isEncryptionAvailable()) {
       try { setCatalog(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))); }
@@ -92,6 +103,10 @@ if (!app.requestSingleInstanceLock()) {
         throw new Error('Enter an addon name and select a source.');
       }
       return catalog.search(query.trim().slice(0, 120), source, await requireInstallation(id));
+    });
+    handle('catalog:detail', async (_event, client, source, id) => {
+      if (typeof id !== 'string' || !Object.hasOwn(sources, source)) throw new Error('Select an addon project.');
+      return catalog.project(source, id, await requireInstallation(client));
     });
     handle('catalog:project', async (_event, source, url) => {
       const page = Object.hasOwn(sources, source) ? projectPage(source, url) : null;

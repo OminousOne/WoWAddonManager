@@ -4,7 +4,7 @@ const edition = $('#edition');
 const filter = $('#filter');
 const state = {
   installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
-  updateResults: new Map(), checking: false, checkId: 0,
+  updateResults: new Map(), checking: false, checkId: 0, project: null, catalogScroll: 0,
 };
 const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', local: 'ZIP import' };
 const pages = {
@@ -60,15 +60,23 @@ function table(headings, rows) {
 }
 
 function render() {
-  for (const [view, labels] of Object.entries(pages)) {
+  const inProject = state.view === 'project';
+  for (const view of Object.keys(pages)) {
     const active = state.view === view;
     $(`#${view}`).hidden = !active;
-    if (active) {
-      $(`#${view}-tab`).setAttribute('aria-current', 'page');
-      $('#page-title').textContent = labels[0];
-      $('#subtitle').textContent = labels[1];
-    } else $(`#${view}-tab`).removeAttribute('aria-current');
+    const tab = $(`#${view}-tab`);
+    if (active || (inProject && view === state.project.returnView)) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
   }
+  const item = state.project?.detail || state.project?.entry;
+  const [title, subtitle] = inProject
+    ? [item.title, [sourceNames[item.source], item.author].filter(Boolean).join(' · ')]
+    : pages[state.view];
+  $('#project').hidden = !inProject;
+  $('#project-back').hidden = !inProject;
+  $('#project-back').disabled = state.busy;
+  $('#page-title').textContent = title;
+  $('#subtitle').textContent = subtitle;
   $('#library-actions').hidden = state.view !== 'library';
   edition.replaceChildren();
   const installations = state.installations;
@@ -93,6 +101,7 @@ function render() {
   details.textContent = selected ? (selected.version || selected.directory) : 'Select a game folder to begin';
   details.title = selected?.directory || '';
 
+  if (state.view === 'project') return renderProject();
   if (state.view === 'catalog') return renderCatalog(selected);
   if (state.view === 'sources') {
     $('#key-status').textContent = state.curseforge ? 'Enabled' : 'Key required';
@@ -247,6 +256,10 @@ function showAddon(addon) {
   }, primary);
   const actions = [];
   if (isOnline(addon)) {
+    actions.push(button('View project', () => {
+      dialog.close();
+      openProject({ ...addon, canInstall: false });
+    }));
     if (update?.status === 'available' && !addon.pinned) actions.push(action('Update addon', 'update', true));
     if (update?.status !== 'available') actions.push(action('Repair', 'repair'));
     actions.push(action(addon.pinned ? 'Unpin' : 'Pin version', addon.pinned ? 'unpin' : 'pin'));
@@ -301,31 +314,128 @@ function renderCatalog(client) {
     ));
     return;
   }
-  const rows = items.map((item) => {
-    const title = el('strong', item.title);
-    title.append(el('small', item.author || sourceNames[item.source]));
-    if (item.summary) title.append(el('small', item.summary, 'summary'));
-    const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
-    const install = button(installed ? 'Installed' : item.canInstall ? 'Install' : 'Unavailable', () => run(async () => {
-      if (await api.install(state.selection, item.source, item.id)) {
-        await readAddons();
-        notify(`${item.title} installed.`);
-      }
-    }));
-    install.disabled = installed || !item.canInstall || state.busy;
-    install.setAttribute('aria-label', `${install.textContent} ${item.title}`);
-    const links = el('div');
-    links.append(el('span', sourceNames[item.source]));
-    if (item.website) {
-      const open = button('Project page ↗', () => run(() => api.openProject(item.source, item.website)));
-      open.className = 'text-button';
-      open.disabled = state.busy;
-      open.setAttribute('aria-label', `Open the project page for ${item.title}`);
-      links.append(open);
+  const grid = el('div', null, 'catalog-grid');
+  grid.append(...items.map(catalogCard));
+  results.replaceChildren(grid);
+}
+
+function media(source, url, { alt = '', cover = false, lazy = true } = {}) {
+  const container = el('div', null, cover ? 'addon-media cover' : 'addon-media');
+  const placeholder = el('span', '◈');
+  placeholder.setAttribute('aria-hidden', 'true');
+  container.append(placeholder);
+  if (!url) return container;
+  const image = el('img');
+  image.alt = alt;
+  image.loading = lazy ? 'lazy' : 'eager';
+  image.decoding = 'async';
+  image.addEventListener('error', () => image.remove(), { once: true });
+  image.src = `ledger-image://${source}/${encodeURIComponent(url)}`;
+  container.append(image);
+  return container;
+}
+
+function catalogInstall(item) {
+  const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
+  const action = button(installed ? 'Installed' : item.canInstall ? 'Install' : 'Unavailable', () => run(async () => {
+    if (await api.install(state.selection, item.source, item.id)) {
+      await readAddons();
+      notify(`${item.title} installed.`);
     }
-    return [title, links, install];
-  });
-  results.replaceChildren(table([['Addon', '64%'], ['Source', '18%'], ['Action', '18%']], rows));
+  }), true);
+  action.disabled = installed || !item.canInstall || state.busy || !state.selection;
+  action.setAttribute('aria-label', `${action.textContent} ${item.title}`);
+  return action;
+}
+
+function catalogCard(item) {
+  const card = el('article', null, 'addon-card');
+  const title = el('h2');
+  const open = button(item.title, () => openProject(item));
+  open.className = 'card-title';
+  open.disabled = state.busy;
+  title.append(open);
+  const info = el('div', null, 'card-info');
+  const author = [sourceNames[item.source], item.author].filter(Boolean).join(' · ');
+  info.append(title, el('p', author, 'card-meta'));
+  if (item.summary) info.append(el('p', item.summary, 'card-summary'));
+  const footer = el('footer', null, 'card-actions');
+  footer.append(catalogInstall(item));
+  card.append(media(item.source, item.image, { cover: item.source === 'wowinterface' }), info, footer);
+  return card;
+}
+
+function renderProject() {
+  const root = $('#project');
+  const { entry, detail } = state.project;
+  const item = detail || entry;
+  const overview = el('article', null, 'panel project-overview');
+  const release = el('div', null, 'project-release');
+  const metadata = [];
+  if (item.version) metadata.push(`Latest release: ${item.version}`);
+  if (Number.isFinite(item.time)) {
+    const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(item.time);
+    metadata.push(`Updated ${date}`);
+  }
+  if (item.downloads) metadata.push(`${new Intl.NumberFormat().format(item.downloads)} downloads`);
+  for (const line of metadata) release.append(el('p', line));
+  const choices = el('div', null, 'actions');
+  choices.append(catalogInstall(item));
+  if (item.website) {
+    const external = button(`Open on ${sourceNames[item.source]} ↗`, () => run(() => api.openProject(item.source, item.website)));
+    external.disabled = state.busy;
+    choices.append(external);
+  }
+  release.append(choices);
+  overview.append(media(item.source, item.image, { cover: item.source === 'wowinterface', lazy: false }), release);
+
+  const about = el('article', null, 'panel project-content');
+  const description = item.description || item.summary
+    || (state.busy && !detail ? 'Loading project details…' : 'This source has no description for the addon.');
+  about.append(el('h2', 'About this addon'), el('p', description, 'project-copy'));
+  if (item.versions?.length) {
+    const versions = [...new Set(item.versions)].slice(0, 32);
+    about.append(el('h3', 'Supported game versions'), el('p', versions.join(', ')));
+  }
+  root.replaceChildren(overview, about);
+
+  if (item.screenshots?.length) {
+    const gallery = el('article', null, 'panel project-content');
+    gallery.append(el('h2', 'Screenshots'));
+    const photos = el('div', null, 'screenshot-grid');
+    for (const [index, url] of item.screenshots.entries()) {
+      const name = `${item.title} screenshot ${index + 1}`;
+      const preview = button(null, () => {
+        $('#screenshot-title').textContent = name;
+        $('#screenshot-view').replaceChildren(media(item.source, url, { alt: name, lazy: false }));
+        $('#screenshot-dialog').showModal();
+      });
+      preview.className = 'screenshot-button';
+      preview.setAttribute('aria-label', `Enlarge ${name}`);
+      preview.append(media(item.source, url, { cover: true }));
+      photos.append(preview);
+    }
+    gallery.append(photos);
+    root.append(gallery);
+  }
+
+  if (item.changelog?.trim()) {
+    const notes = el('details', null, 'panel project-content release-notes');
+    notes.append(el('summary', 'Release notes'), el('p', item.changelog, 'project-copy'));
+    root.append(notes);
+  }
+}
+
+async function openProject(item) {
+  if (state.busy) return;
+  state.catalogScroll = window.scrollY;
+  const returnView = state.view;
+  $('#project-back').textContent = returnView === 'library' ? '← Back to My AddOns' : '← Back to Discover';
+  state.project = { entry: item, detail: null, returnView };
+  state.view = 'project';
+  window.scrollTo(0, 0);
+  await run(async () => { state.project.detail = await api.project(state.selection, item.source, item.id); });
+  $('#project-back').focus();
 }
 
 async function readCatalog() {
@@ -337,12 +447,15 @@ async function readCatalog() {
 
 async function showPage(view) {
   if (state.busy || view === state.view) return;
+  const returning = state.view === 'project' && view === state.project.returnView;
+  state.project = null;
   state.view = view;
   if (view === 'catalog' && !state.catalog) await run(readCatalog);
   else {
     notify();
     render();
   }
+  window.scrollTo(0, returning ? state.catalogScroll : 0);
 }
 
 async function run(operation) {
@@ -368,11 +481,18 @@ async function setInstallations(found) {
   state.installations = found;
   const preferred = state.selection || localStorage.getItem('edition');
   const next = found.find(({ id }) => id === preferred)?.id || found[0]?.id || null;
-  if (state.selection !== next) cancelCheck();
+  if (state.selection !== next) {
+    cancelCheck();
+    state.addons = [];
+    if (state.view === 'project') {
+      state.view = 'catalog';
+      state.project = null;
+    }
+  }
   state.selection = next;
+  state.catalog = null;
   if (state.selection) localStorage.setItem('edition', state.selection);
   await readAddons();
-  state.catalog = null;
   if (state.view === 'catalog') await readCatalog();
 }
 
@@ -392,6 +512,10 @@ edition.addEventListener('change', () => {
     state.addons = [];
     filter.value = '';
     state.catalog = null;
+    if (state.view === 'project') {
+      state.view = 'catalog';
+      state.project = null;
+    }
     await readAddons();
     if (state.view === 'catalog') await readCatalog();
   }).then(() => checkUpdates());
@@ -402,6 +526,8 @@ $('#library-filter').addEventListener('change', render);
 $('#check-updates').addEventListener('click', () => checkUpdates(true));
 $('#update-all').addEventListener('click', updateAll);
 $('#dialog-close').addEventListener('click', () => $('#addon-dialog').close());
+$('#screenshot-close').addEventListener('click', () => $('#screenshot-dialog').close());
+$('#project-back').addEventListener('click', () => showPage(state.project.returnView));
 $('#import-zip').addEventListener('click', () => run(async () => {
   if (await api.importZip(state.selection)) {
     await readAddons();

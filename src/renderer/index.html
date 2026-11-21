@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' ledger-image:; font-src 'self'; base-uri 'none'; form-action 'none'">
   <title>AddOn Ledger</title>
   <link rel="stylesheet" href="./style.css">
   <script defer src="./app.js"></script>
@@ -30,6 +30,7 @@
     </footer>
   </aside>
   <main>
+    <button id="project-back" type="button" class="text-button" hidden>← Back to Discover</button>
     <header class="page-head">
       <div>
         <h1 id="page-title">My AddOns</h1>
@@ -71,6 +72,7 @@
       </form>
       <div id="catalog-results"></div>
     </section>
+    <section id="project" aria-labelledby="page-title" hidden></section>
     <section id="sources" class="panel source-settings" aria-labelledby="page-title" hidden>
       <article><div><h2>WoWInterface</h2><p>Search and install from the WoWInterface catalog.</p></div><span class="badge">Enabled</span></article>
       <article><div><h2>Tukui</h2><p>Install ElvUI or Tukui from their official source.</p></div><span class="badge">Enabled</span></article>
@@ -94,6 +96,10 @@
     <p id="addon-dialog-details"></p>
     <ul id="addon-dialog-folders"></ul>
     <div id="addon-dialog-actions" class="actions"></div>
+  </dialog>
+  <dialog id="screenshot-dialog" aria-labelledby="screenshot-title">
+    <header><h2 id="screenshot-title">Addon screenshot</h2><button id="screenshot-close" class="button" type="button">Close</button></header>
+    <div id="screenshot-view"></div>
   </dialog>
   <dialog id="remove-dialog" aria-labelledby="remove-title">
     <header><h2 id="remove-title">Remove addon?</h2></header>
