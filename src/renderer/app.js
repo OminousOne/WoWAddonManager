@@ -124,7 +124,9 @@ async function readAddons() {
 async function setInstallations(found) {
   state.installations = found;
   const preferred = state.selection || localStorage.getItem('edition');
-  state.selection = found.find(({ id }) => id === preferred)?.id || found[0]?.id || null;
+  const selection = found.find(({ id }) => id === preferred)?.id || found[0]?.id || null;
+  if (selection !== state.selection) state.addons = [];
+  state.selection = selection;
   if (state.selection) localStorage.setItem('edition', state.selection);
   await readAddons();
 }

@@ -141,17 +141,21 @@ async function scanAddons(installation) {
     if (error.code === 'ENOENT') return [];
     throw error;
   });
-  const addons = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async ({ name }) => {
+  const addonEntries = entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink());
+  const addons = await Promise.all(addonEntries.map(async (entry) => {
+    const { name } = entry;
     const folder = path.join(directory, name);
-    const names = await fs.readdir(folder, { withFileTypes: true });
+    const names = await fs.readdir(folder, { withFileTypes: true }).catch((error) => {
+      if (entry.isSymbolicLink() && ['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) return [];
+      throw error;
+    });
     const files = new Map(names.filter((entry) => entry.isFile())
       .map((entry) => [entry.name.toLowerCase(), entry.name]));
     const candidates = (suffixes[installation.edition] || []).flatMap((suffix) => (
       [`${name}-${suffix}.toc`, `${name}_${suffix}.toc`]
     ));
     candidates.push(`${name}.toc`);
-    const toc = candidates.map((candidate) => files.get(candidate.toLowerCase())).find(Boolean)
-      || [...files.values()].find((file) => file.toLowerCase().endsWith('.toc'));
+    const toc = candidates.map((candidate) => files.get(candidate.toLowerCase())).find(Boolean);
     if (!toc) return null;
     return { folder: name, ...parseToc(await readSmall(path.join(folder, toc))) };
   }));
