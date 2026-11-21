@@ -136,7 +136,7 @@ const suffixes = {
 };
 
 async function scanAddons(installation) {
-  const directory = path.join(installation.directory, 'Interface', 'AddOns');
+  const directory = installation.addonsDirectory || path.join(installation.directory, 'Interface', 'AddOns');
   const entries = await fs.readdir(directory, { withFileTypes: true }).catch((error) => {
     if (error.code === 'ENOENT') return [];
     throw error;

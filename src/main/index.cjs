@@ -112,6 +112,32 @@ if (!app.requestSingleInstanceLock()) {
       return findInstallations();
     });
     handle('addons:list', async (_event, id) => library.list(await requireInstallation(id)));
+    handle('addons:updates', async (_event, id) => library.updates(await requireInstallation(id), catalog));
+    handle('addons:change', async (_event, id, key, action) => {
+      if (typeof key !== 'string' || !/^(wowinterface|tukui|curseforge|local):[a-z0-9-]{1,50}$/.test(key)) {
+        throw new Error('Select an installed addon.');
+      }
+      const client = await requireInstallation(id);
+      switch (action) {
+        case 'pin': return library.pin(client, key, true);
+        case 'unpin': return library.pin(client, key, false);
+        case 'remove': return library.remove(client, key);
+        case 'update':
+        case 'repair': return library.refresh(client, catalog, key, action);
+        default: throw new Error('Select a supported addon action.');
+      }
+    });
+    handle('addons:import', async (event, id) => {
+      const client = await requireInstallation(id);
+      const { canceled, filePaths } = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
+        title: 'Choose a World of Warcraft addon ZIP',
+        properties: ['openFile'],
+        filters: [{ name: 'Addon archives', extensions: ['zip'] }],
+      });
+      if (canceled) return false;
+      await library.importZip(client, filePaths[0]);
+      return true;
+    });
     handle('editions:open', async (_event, id) => {
       const { directory } = await requireInstallation(id);
       const error = await shell.openPath(directory);

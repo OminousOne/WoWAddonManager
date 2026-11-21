@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld('ledger', {
   search: request('catalog:search'),
   install: request('catalog:install'),
   addons: request('addons:list'),
+  updates: request('addons:updates'),
+  changeAddon: request('addons:change'),
+  importZip: request('addons:import'),
 });

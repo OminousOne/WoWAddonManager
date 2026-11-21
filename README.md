@@ -19,3 +19,10 @@ The app scans common Battle.net locations on macOS and Windows and common Wine a
 Open **Discover** to browse or search the catalog for the selected client. WoWInterface and Tukui work out of the box. For CurseForge, use **Sources** to save your [CurseForge API key](https://support.curseforge.com/support/solutions/articles/9000208346) in the system credential store, or launch with the `CURSEFORGE_API_KEY` environment variable. CurseForge authors control whether their addons may be distributed by third-party clients.
 
 An install can contain several addon folders. AddOn Ledger groups those folders together and preserves unrelated and manually installed folders if their names overlap.
+
+## Maintain a library
+
+- **Check updates** refreshes release information for managed catalog addons. The app also checks in the background when you open or switch installations.
+- **Update all** applies available updates for the selected client and skips pinned addons. Open an addon's details to pin it, repair the currently installed release when the provider still offers it, or remove it.
+- **Import ZIP** adds a local addon archive to the selected client. ZIP imports and manually installed folders do not participate in catalog update checks.
+- Managed removals affect the recorded addon folders under `Interface/AddOns`. WoW's `WTF` folder and saved settings are preserved.

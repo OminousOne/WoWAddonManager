@@ -85,4 +85,41 @@ test('recovers an interrupted update and restores the old addon', async (t) => {
   await assert.rejects(fs.access(work));
 });
 
-module.exports = { fixture, source };
+test('checks for updates, protects pinned versions, repairs and removes grouped addons', async (t) => {
+  const { client, library, live } = await fixture(t);
+  const first = source({ 'Alpha/Alpha.toc': '## Version: 1.0', 'Beta/Beta.toc': '## Version: 1.0' });
+  const next = source({ 'Alpha/Alpha.toc': '## Version: 2.0', 'Gamma/Gamma.toc': '## Version: 2.0' }, '2.0');
+  const key = 'tukui:example';
+  await library.install(client, first, 'tukui', 'example');
+  await fs.rm(path.join(live, 'Beta'), { recursive: true });
+  assert.equal((await library.list(client))[0].damaged, true);
+  await assert.rejects(library.refresh(client, next, key, 'repair'), /installed release is unavailable/);
+  await library.refresh(client, first, key, 'repair');
+  assert.equal((await library.list(client))[0].damaged, false);
+  assert.deepEqual(await library.updates(client, next), [
+    { key, revision: '1.0', version: '2.0', status: 'available' },
+  ]);
+  await library.pin(client, key, true);
+  await assert.rejects(library.refresh(client, next, key, 'update'), /Unpin/);
+  await library.pin(client, key, false);
+  await library.refresh(client, next, key, 'update');
+  assert.deepEqual((await fs.readdir(live)).sort(), ['Alpha', 'Gamma']);
+  assert.equal((await library.list(client))[0].version, '2.0');
+  await library.remove(client, key);
+  assert.deepEqual(await library.list(client), []);
+  assert.deepEqual(await fs.readdir(live), []);
+});
+
+test('imports local archives without associating them with an online catalog', async (t) => {
+  const { client, library, live } = await fixture(t);
+  const archive = path.join(client.directory, 'Example.zip');
+  await source({ 'Alpha/Alpha.toc': '## Title: Local Example\n## Version: 1.5' }).download(null, archive);
+  await library.importZip(client, archive);
+  const [addon] = await library.list(client);
+  assert.equal(addon.title, 'Local Example');
+  assert.equal(addon.version, '1.5');
+  assert.equal(addon.source, 'local');
+  assert.deepEqual(await library.updates(client, {}), []);
+  await library.remove(client, addon.key);
+  assert.deepEqual(await fs.readdir(live), []);
+});

@@ -35,13 +35,26 @@
         <h1 id="page-title">My AddOns</h1>
         <p id="subtitle">Addons installed for the selected WoW client.</p>
       </div>
-      <button id="refresh" class="button">Rescan library</button>
+      <div id="library-actions" class="actions">
+        <button id="import-zip" class="button">Import ZIP</button>
+        <button id="refresh" class="button">Rescan library</button>
+        <button id="check-updates" class="button primary">Check updates</button>
+      </div>
     </header>
     <div id="notice" class="notice" role="status" hidden></div>
     <section id="library" class="panel" aria-labelledby="page-title">
       <div class="toolbar">
         <label class="search"><span aria-hidden="true">⌕</span><input id="filter" type="search" aria-label="Filter installed addons" placeholder="Filter installed addons"></label>
-        <span id="count"></span>
+        <div class="actions">
+          <select id="library-filter" aria-label="Show installed addons by status">
+            <option value="all">All addons</option>
+            <option value="updates">Updates available</option>
+            <option value="pinned">Pinned</option>
+            <option value="local">Manually installed</option>
+          </select>
+          <button id="update-all" class="button primary" hidden>Update all</button>
+          <span id="count"></span>
+        </div>
       </div>
       <div id="results"></div>
     </section>
@@ -76,5 +89,19 @@
       </article>
     </section>
   </main>
+  <dialog id="addon-dialog" aria-labelledby="addon-dialog-title">
+    <header><h2 id="addon-dialog-title"></h2><button id="dialog-close" class="button" type="button">Close</button></header>
+    <p id="addon-dialog-details"></p>
+    <ul id="addon-dialog-folders"></ul>
+    <div id="addon-dialog-actions" class="actions"></div>
+  </dialog>
+  <dialog id="remove-dialog" aria-labelledby="remove-title">
+    <header><h2 id="remove-title">Remove addon?</h2></header>
+    <p id="remove-description"></p>
+    <form method="dialog" class="actions">
+      <button class="button" type="submit" value="cancel" autofocus>Cancel</button>
+      <button class="button danger" type="submit" value="remove">Remove addon</button>
+    </form>
+  </dialog>
 </body>
 </html>

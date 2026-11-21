@@ -78,3 +78,23 @@ td small { display: block; color: var(--muted); margin-top: 4px; font-weight: 40
 .source-settings input { min-width: 100px; width: 100%; background: #111721; color: inherit; padding: 8px; border-radius: 7px; border: 1px solid var(--line); }
 .actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
 .badge { display: inline-block; color: var(--gold); border-radius: 5px; background: var(--gold-wash); padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+#library-actions { justify-content: flex-end; }
+#library-filter { width: auto; font-size: 12px; }
+.row-actions { display: flex; gap: 5px; align-items: center; }
+.row-actions > .button { padding: 7px 9px; font-size: 12px; }
+dialog { color: inherit; background: var(--surface); border: 1px solid #405068; border-radius: 12px; padding: 21px; width: min(470px, 90vw); }
+dialog::backdrop { background: #0b0f18bb; }
+dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+dialog h2 { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
+dialog p, dialog ul { color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+dialog ul { max-height: 140px; overflow: auto; }
+dialog .actions { margin-top: 18px; }
+.button.danger { background: #713639; border-color: #a65d62; }
+.button.danger:hover:not(:disabled) { background: #8a4449; }
+@media (max-width: 925px) {
+  body { grid-template-columns: 205px minmax(0, 1fr); }
+  main { padding-left: 20px; padding-right: 20px; }
+  td, th { padding-left: 10px; padding-right: 10px; }
+  .page-head { align-items: flex-start; }
+  #library-actions { max-width: 250px; }
+}
