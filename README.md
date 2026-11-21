@@ -26,3 +26,17 @@ An install can contain several addon folders. AddOn Ledger groups those folders 
 - **Update all** applies available updates for the selected client and skips pinned addons. Open an addon's details to pin it, repair the currently installed release when the provider still offers it, or remove it.
 - **Import ZIP** adds a local addon archive to the selected client. ZIP imports and manually installed folders do not participate in catalog update checks.
 - Managed removals affect the recorded addon folders under `Interface/AddOns`. WoW's `WTF` folder and saved settings are preserved.
+
+## Build desktop packages
+
+On each target OS with Node.js 24, run:
+
+```sh
+npm ci
+npm test
+npm run package
+```
+
+The packages are written to `dist/`. The GitHub Actions **Desktop builds** workflow builds the Linux x64 AppImage, macOS DMGs for Apple Silicon and Intel, and the Windows x64 installer. It then launches each packaged app against temporary Retail and Classic libraries. Download installers from the workflow run's artifacts.
+
+The macOS builds use ad-hoc signing and are not notarized. The Windows installer has no publisher signature.

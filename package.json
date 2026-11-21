@@ -8,13 +8,16 @@
   "main": "src/main/index.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test"
+    "test": "node --test",
+    "package": "electron-builder --publish never",
+    "smoke": "node scripts/smoke.cjs"
   },
   "engines": {
     "node": ">=24"
   },
   "devDependencies": {
     "electron": "45.4.1",
+    "electron-builder": "26.18.0",
     "yazl": "3.3.1"
   },
   "dependencies": {
