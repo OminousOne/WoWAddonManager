@@ -98,3 +98,5 @@ dialog .actions { margin-top: 18px; }
   .page-head { align-items: flex-start; }
   #library-actions { max-width: 250px; }
 }
+.text-button { display: block; border: 0; padding: 0; margin-top: 4px; color: var(--gold); background: transparent; font-size: 11px; text-align: left; }
+.text-button:hover:not(:disabled) { text-decoration: underline; }

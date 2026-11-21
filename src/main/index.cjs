@@ -3,7 +3,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { openStore } = require('./store.cjs');
 const { defaultRoots, discoverInstallations } = require('./wow.cjs');
-const { newCatalog, sources } = require('./sources.cjs');
+const { newCatalog, projectPage, sources } = require('./sources.cjs');
 const { createLibrary } = require('./library.cjs');
 
 const page = path.join(__dirname, '../renderer/index.html');
@@ -93,9 +93,26 @@ if (!app.requestSingleInstanceLock()) {
       }
       return catalog.search(query.trim().slice(0, 120), source, await requireInstallation(id));
     });
-    handle('catalog:install', async (_event, client, source, id) => {
+    handle('catalog:project', async (_event, source, url) => {
+      const page = Object.hasOwn(sources, source) ? projectPage(source, url) : null;
+      if (!page) throw new Error('This project page is unavailable.');
+      await shell.openExternal(page);
+    });
+    handle('catalog:install', async (event, client, source, id) => {
       if (typeof id !== 'string' || !Object.hasOwn(sources, source)) throw new Error('Select a valid addon result.');
-      return library.install(await requireInstallation(client), catalog, source, id);
+      return library.install(await requireInstallation(client), catalog, source, id, 'install', async (addon, folders) => {
+        const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+          type: 'warning',
+          title: 'Replace existing addon folders?',
+          message: `Install ${addon.title} from ${sources[source]} and manage it here?`,
+          detail: `The following manually installed folders and any edits inside them will be replaced. WoW settings in the WTF folder are preserved.\n\n${folders.join('\n')}`,
+          buttons: ['Cancel', 'Replace and manage'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        return response === 1;
+      });
     });
     handle('editions:list', () => findInstallations());
     handle('editions:add', async (event) => {

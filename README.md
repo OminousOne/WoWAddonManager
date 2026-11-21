@@ -18,7 +18,7 @@ The app scans common Battle.net locations on macOS and Windows and common Wine a
 
 Open **Discover** to browse or search the catalog for the selected client. WoWInterface and Tukui work out of the box. For CurseForge, use **Sources** to save your [CurseForge API key](https://support.curseforge.com/support/solutions/articles/9000208346) in the system credential store, or launch with the `CURSEFORGE_API_KEY` environment variable. CurseForge authors control whether their addons may be distributed by third-party clients.
 
-An install can contain several addon folders. AddOn Ledger groups those folders together and preserves unrelated and manually installed folders if their names overlap.
+An install can contain several addon folders. AddOn Ledger groups those folders as one package. To migrate a manually installed addon, find it in Discover and choose **Install**. If the archive overlaps any manual folders, the app lists them and asks before replacing them. The migrated addon then receives catalog updates.
 
 ## Maintain a library
 

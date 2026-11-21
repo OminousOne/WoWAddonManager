@@ -94,7 +94,7 @@ function createLibrary(store) {
     });
   }
 
-  async function change(client, key, prepare, { existing = false } = {}) {
+  async function change(client, key, prepare, { existing = false, authorizeReplace } = {}) {
     return serial(async () => {
       const paths = libraryPaths(client);
       await recover(paths, committed(client));
@@ -113,12 +113,24 @@ function createLibrary(store) {
         const normalize = (name) => name.normalize('NFC').toLowerCase();
         const live = await fs.readdir(paths.live, { withFileTypes: true });
         const byName = new Map(live.map((entry) => [entry.name, entry]));
-        for (const folder of incoming) {
-          const collision = live.find((entry) => normalize(entry.name) === normalize(folder)
-            && (!owned.has(entry.name) || !entry.isDirectory()));
-          if (collision) {
-            throw new Error(`Folder “${collision.name}” already exists. AddOn Ledger protects folders owned by other addons or installed manually.`);
+        const incomingNames = new Set(incoming.map(normalize));
+        const collisions = live.filter((entry) => incomingNames.has(normalize(entry.name))
+          && (!owned.has(entry.name) || !entry.isDirectory()));
+        if (collisions.length) {
+          const reserved = new Set(Object.values(packages(client)).flatMap(({ folders }) => folders.map(normalize)));
+          if (!authorizeReplace || collisions.some((entry) => !entry.isDirectory() || reserved.has(normalize(entry.name)))) {
+            throw new Error(`Folder “${collisions[0].name}” already exists. AddOn Ledger protects folders owned by other addons or installed manually.`);
           }
+          const local = new Set((await scanAddons(client)).map(({ folder }) => folder));
+          if (collisions.some(({ name }) => !local.has(name))) {
+            throw new Error('A folder of the same name already exists without an addon TOC. Move it before installing.');
+          }
+          const replacements = collisions.map(({ name }) => name);
+          if (!await authorizeReplace(next, replacements)) {
+            await recover(paths, committed(client));
+            return false;
+          }
+          for (const name of replacements) owned.add(name);
         }
         const outgoing = [...owned].filter((folder) => {
           return byName.get(folder)?.isDirectory();
@@ -142,10 +154,11 @@ function createLibrary(store) {
       }
       // A committed transaction is still recoverable if cleanup cannot run immediately.
       await recover(paths, committed(client)).catch(() => {});
+      return true;
     });
   }
 
-  function install(client, catalog, source, id, mode = 'install') {
+  function install(client, catalog, source, id, mode = 'install', authorizeReplace) {
     return change(client, packageKey(source, id), async (paths, previous) => {
       if (mode === 'update' && previous.pinned) throw new Error('Unpin this addon before updating it.');
       const file = await catalog.release(source, id, client);
@@ -158,7 +171,7 @@ function createLibrary(store) {
       const folders = await extractAddons(archive, paths.stage);
       const { title, version, revision, time } = file;
       return { source, id, title, version, revision, time, folders, pinned: previous?.pinned || false };
-    }, { existing: mode !== 'install' });
+    }, { existing: mode !== 'install', authorizeReplace });
   }
 
   function importZip(client, archive) {
