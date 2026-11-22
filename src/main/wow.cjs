@@ -126,14 +126,25 @@ function parseToc(contents) {
   };
 }
 
-const suffixes = {
+const editionTocSuffixes = {
   retail: ['Mainline'],
-  progression: ['Mists', 'Cata', 'Wrath', 'WotLKC'],
   era: ['Vanilla', 'Classic'],
-  anniversary: ['BCC', 'TBC'],
-  forever: ['Forever', 'Camelot'],
-  titan: ['Titan', 'Wrath'],
+  anniversary: ['BCC', 'TBC', 'Classic'],
+  forever: ['Forever', 'Camelot', 'Mainline'],
+  titan: ['Titan', 'Wrath', 'Classic'],
 };
+
+const progressionTocSuffixes = {
+  3: ['Wrath', 'WotLKC'],
+  4: ['Cata'],
+  5: ['Mists'],
+};
+
+function tocSuffixes({ edition, version }) {
+  if (edition !== 'progression') return editionTocSuffixes[edition] || [];
+  const major = Number(version?.split('.')[0]);
+  return [...(progressionTocSuffixes[major] || []), 'Classic'];
+}
 
 async function scanAddons(installation) {
   const directory = path.join(installation.directory, 'Interface', 'AddOns');
@@ -142,6 +153,7 @@ async function scanAddons(installation) {
     throw error;
   });
   const addonEntries = entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink());
+  const suffixes = tocSuffixes(installation);
   const addons = await Promise.all(addonEntries.map(async (entry) => {
     const { name } = entry;
     const folder = path.join(directory, name);
@@ -151,7 +163,7 @@ async function scanAddons(installation) {
     });
     const files = new Map(names.filter((entry) => entry.isFile())
       .map((entry) => [entry.name.toLowerCase(), entry.name]));
-    const candidates = (suffixes[installation.edition] || []).flatMap((suffix) => (
+    const candidates = suffixes.flatMap((suffix) => (
       [`${name}-${suffix}.toc`, `${name}_${suffix}.toc`]
     ));
     candidates.push(`${name}.toc`);

@@ -31,6 +31,60 @@ test('detects individual editions, deduplicates roots, and reads the applicable 
   assert.deepEqual(await scanAddons(installations[1]), []);
 });
 
+test('prefers the client TOC, then the game family TOC, then the generic TOC', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const directory = path.join(root, '_classic_');
+  const fixtures = {
+    Specific: {
+      '-Mists.TOC': 'Mists',
+      '_Cata.toc': 'Cata',
+      '_WotLKC.toc': 'Wrath',
+      '_Vanilla.toc': 'Era',
+      '_TBC.toc': 'Anniversary',
+      '_Titan.toc': 'Titan',
+      '_Camelot.toc': 'Forever',
+      '_Classic.toc': 'Classic',
+      '_Mainline.toc': 'Mainline',
+      '.toc': 'Generic',
+    },
+    ClassicOnly: { '_Classic.toc': 'Classic' },
+    MainlineOnly: { '_Mainline.toc': 'Mainline' },
+    CataOnly: { '_Cata.toc': 'Cata' },
+    CataWithFamily: { '_Cata.toc': 'Cata', '_Classic.toc': 'Classic' },
+    Generic: { '.toc': 'Generic' },
+  };
+  for (const [name, tocs] of Object.entries(fixtures)) {
+    const folder = path.join(directory, 'Interface', 'AddOns', name);
+    await fs.mkdir(folder, { recursive: true });
+    for (const [ending, title] of Object.entries(tocs)) {
+      await fs.writeFile(path.join(folder, `${name}${ending}`), `## Title: ${title}\n`);
+    }
+  }
+
+  const classicFamily = { ClassicOnly: 'Classic', CataWithFamily: 'Classic' };
+  const mainlineFamily = { MainlineOnly: 'Mainline' };
+  const cases = [
+    ['progression', '5.5.4.1', 'Mists', classicFamily],
+    ['progression', '4.4.2.1', 'Cata', { ...classicFamily, CataOnly: 'Cata', CataWithFamily: 'Cata' }],
+    ['progression', '3.4.3.1', 'Wrath', classicFamily],
+    ['progression', null, 'Classic', classicFamily],
+    ['era', '1.15.8.1', 'Era', classicFamily],
+    ['anniversary', '2.5.5.1', 'Anniversary', classicFamily],
+    ['titan', '3.80.1.1', 'Titan', classicFamily],
+    ['forever', '1.60.1.1', 'Forever', mainlineFamily],
+    ['retail', '12.1.5.1', 'Mainline', mainlineFamily],
+  ];
+  for (const [edition, version, title, expected] of cases) {
+    const library = await scanAddons({ directory, edition, version });
+    assert.deepEqual(Object.fromEntries(library.map(({ folder, title }) => [folder, title])), {
+      ...expected,
+      Specific: title,
+      Generic: 'Generic',
+    }, `${edition} ${version ?? 'without build info'}`);
+  }
+});
+
 test('scans ordinary and linked addon directories and skips dangling links', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
