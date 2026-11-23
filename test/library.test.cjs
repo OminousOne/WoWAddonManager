@@ -31,6 +31,20 @@ function source(files, version = '1.0') {
   };
 }
 
+test('lists addons through a symlinked Interface folder without a transaction workspace', async (t) => {
+  const { client, library, work } = await fixture(t);
+  const interfaceTarget = path.join(client.directory, 'SharedInterface');
+  const addon = path.join(interfaceTarget, 'AddOns', 'Local');
+  await fs.mkdir(addon, { recursive: true });
+  await fs.writeFile(path.join(addon, 'Local.toc'), '## Title: Local');
+  await fs.symlink(interfaceTarget, path.join(client.directory, 'Interface'), 'junction');
+
+  assert.deepEqual((await library.list(client)).map(({ folder }) => folder), ['Local']);
+  await assert.rejects(library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Alpha' }),
+    'tukui', 'example'), /not a regular directory/);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
+
 test('installs grouped ZIP folders and preserves unrelated addons', async (t) => {
   const { client, library, live, work } = await fixture(t);
   await fs.mkdir(path.join(live, 'Local'), { recursive: true });

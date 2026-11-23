@@ -165,11 +165,19 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
       if (mod.gameId !== 432 || mod.allowModDistribution === false) {
         throw new Error('This project is unavailable for third-party installation through CurseForge.');
       }
-      const params = new URLSearchParams({ pageSize: '50' });
+      const params = new URLSearchParams();
       if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
-      const { data: files } = await json(`${forge}/mods/${id}/files?${params}`, source);
-      const file = files.filter((item) => item.releaseType === 1 && item.isAvailable
-        && compatible(item.gameVersions, client)).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      const fileLimit = 10_000; // CurseForge caps index + pageSize.
+      let file;
+      for (let index = 0; index < fileLimit;) {
+        params.set('index', String(index));
+        params.set('pageSize', String(Math.min(50, fileLimit - index)));
+        const { data: files, pagination } = await json(`${forge}/mods/${id}/files?${params}`, source);
+        file = files.filter((item) => item.releaseType === 1 && item.isAvailable
+          && compatible(item.gameVersions, client)).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+        index += files.length;
+        if (file || !files.length || !pagination || index >= pagination.totalCount) break;
+      }
       if (file) {
         const url = file.downloadUrl
           || (await json(`${forge}/mods/${id}/files/${file.id}/download-url`, source)).data;
