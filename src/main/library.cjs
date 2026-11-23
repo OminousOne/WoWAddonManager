@@ -44,7 +44,8 @@ function libraryPaths(client) {
 }
 
 async function recover(paths, committed) {
-  if (!await realDirectory(paths.base, false) || !await realDirectory(paths.work, false)) return;
+  // A read-only scan can follow Interface when there is no transaction to recover.
+  if (!await realDirectory(paths.work, false) || !await realDirectory(paths.base, false)) return;
   const pending = await fs.readFile(paths.journal, 'utf8').then(JSON.parse).catch((error) => {
     if (error.code === 'ENOENT') return null;
     throw error;
