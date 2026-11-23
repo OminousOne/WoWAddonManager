@@ -41,6 +41,8 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
       '_Cata.toc': 'Cata',
       '_WotLKC.toc': 'Wrath',
       '_Vanilla.toc': 'Era',
+      '-BCC.toc': 'Legacy BCC',
+      '_BCC.toc': 'Invalid BCC',
       '_TBC.toc': 'Anniversary',
       '_Titan.toc': 'Titan',
       '_Camelot.toc': 'Forever',
@@ -52,6 +54,10 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
     ClassicOnly: { '_Classic.toc': 'Classic' },
     MainlineOnly: { '_Mainline.toc': 'Mainline' },
     StandardOnly: { '_Standard.toc': 'Standard' },
+    LegacyBccOnly: { '-BCC.toc': 'Legacy BCC' },
+    InvalidBccOnly: { '_BCC.toc': 'Invalid BCC' },
+    BccWithFamily: { '-BCC.toc': 'Legacy BCC', '_Classic.toc': 'Classic' },
+    BccWithGeneric: { '-BCC.toc': 'Legacy BCC', '.toc': 'Generic' },
     CataOnly: { '_Cata.toc': 'Cata' },
     CataWithFamily: { '_Cata.toc': 'Cata', '_Classic.toc': 'Classic' },
     Generic: { '.toc': 'Generic' },
@@ -64,7 +70,13 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
     }
   }
 
-  const classicFamily = { ClassicOnly: 'Classic', CataWithFamily: 'Classic' };
+  const classicFamily = { ClassicOnly: 'Classic', CataWithFamily: 'Classic', BccWithFamily: 'Classic' };
+  const legacyAnniversary = {
+    ...classicFamily,
+    LegacyBccOnly: 'Legacy BCC',
+    BccWithFamily: 'Legacy BCC',
+    BccWithGeneric: 'Legacy BCC',
+  };
   const mainlineFamily = { MainlineOnly: 'Mainline' };
   const standardRetail = { ...mainlineFamily, StandardOnly: 'Standard' };
   const cases = [
@@ -73,7 +85,10 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
     ['progression', '3.4.3.1', 'Wrath', classicFamily],
     ['progression', null, 'Classic', classicFamily],
     ['era', '1.15.8.1', 'Era', classicFamily],
+    ['anniversary', '2.5.4.1', 'Legacy BCC', legacyAnniversary],
     ['anniversary', '2.5.5.1', 'Anniversary', classicFamily],
+    ['anniversary', '2.5.6.1', 'Anniversary', classicFamily],
+    ['anniversary', null, 'Anniversary', classicFamily],
     ['titan', '3.80.1.1', 'Titan', classicFamily],
     ['forever', '1.60.1.1', 'Forever', mainlineFamily],
     ['retail', '12.1.4.1', 'Mainline', mainlineFamily],
@@ -84,9 +99,10 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
   for (const [edition, version, title, expected] of cases) {
     const library = await scanAddons({ directory, edition, version });
     assert.deepEqual(Object.fromEntries(library.map(({ folder, title }) => [folder, title])), {
-      ...expected,
       Specific: title,
       Generic: 'Generic',
+      BccWithGeneric: 'Generic',
+      ...expected,
     }, `${edition} ${version ?? 'without build info'}`);
   }
 });

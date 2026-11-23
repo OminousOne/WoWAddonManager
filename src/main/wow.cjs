@@ -128,7 +128,7 @@ function parseToc(contents) {
 
 const editionTocSuffixes = {
   era: ['Vanilla', 'Classic'],
-  anniversary: ['BCC', 'TBC', 'Classic'],
+  anniversary: ['TBC', 'Classic'],
   forever: ['Forever', 'Camelot', 'Mainline'],
   titan: ['Titan', 'Wrath', 'Classic'],
 };
@@ -145,6 +145,10 @@ function tocSuffixes({ edition, version }) {
     // Retail added the Standard suffix in 12.1.5.
     const supportsStandard = major > 12 || (major === 12 && (minor > 1 || (minor === 1 && patch >= 5)));
     return supportsStandard ? ['Standard', 'Mainline'] : ['Mainline'];
+  }
+  // The legacy -BCC suffix was supported from 2.5.1 through 2.5.4.
+  if (edition === 'anniversary' && major === 2 && minor === 5 && patch >= 1 && patch < 5) {
+    return ['BCC', ...editionTocSuffixes.anniversary];
   }
   if (edition !== 'progression') return editionTocSuffixes[edition] || [];
   return [...(progressionTocSuffixes[major] || []), 'Classic'];
@@ -167,9 +171,10 @@ async function scanAddons(installation) {
     });
     const files = new Map(names.filter((entry) => entry.isFile())
       .map((entry) => [entry.name.toLowerCase(), entry.name]));
-    const candidates = suffixes.flatMap((suffix) => (
-      [`${name}-${suffix}.toc`, `${name}_${suffix}.toc`]
-    ));
+    const candidates = suffixes.flatMap((suffix) => {
+      const hyphenated = `${name}-${suffix}.toc`;
+      return suffix === 'BCC' ? [hyphenated] : [hyphenated, `${name}_${suffix}.toc`];
+    });
     candidates.push(`${name}.toc`);
     const toc = candidates.map((candidate) => files.get(candidate.toLowerCase())).find(Boolean);
     if (!toc) return null;
