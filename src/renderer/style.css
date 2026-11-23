@@ -203,6 +203,7 @@ dialog .actions { margin-top: 18px; }
 
 #catalog { overflow: visible; }
 #catalog .toolbar { border-radius: var(--radius) var(--radius) 0 0; }
+.catalog-external { margin: 12px 16px 0; font-size: 12px; }
 .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 218px), 1fr)); gap: 14px; padding: 16px; }
 .addon-card {
   position: relative;

@@ -12,11 +12,139 @@ test('isolates edition tags and Classic Progression expansions', () => {
 test('keeps working results when a catalog fails', async () => {
   const catalog = newCatalog('', async (url) => {
     if (url.host === 'api.mmoui.com') return new Response('error', { status: 500 });
+    if (url.host === 'hub.wowup.io') return Response.json({ addons: [] });
     return Response.json([{ slug: 'elvui', name: 'ElvUI', patch: ['12.1.5'], author: 'Elv' }]);
   });
   const { items, warnings } = await catalog.search('elvui', 'all', { edition: 'retail' });
   assert.equal(items[0].title, 'ElvUI');
   assert.match(warnings[0], /WoWInterface/);
+});
+
+test('finds Questie across editions and restricts browsing and installation to compatible releases', async () => {
+  const questie = { UID: '24994', UIName: 'Questie', UICompatibility: [{ version: '1.13.7' }] };
+  const related = { UID: '42', UIName: 'Questie Helper', UIDownloadTotal: '2000000',
+    UICompatibility: [{ version: '12.1.5' }] };
+  const catalog = newCatalog('', async (url) => {
+    if (url.host === 'api.tukui.org') return Response.json([]);
+    if (url.host === 'hub.wowup.io') return Response.json({ addons: [] });
+    return Response.json(url.pathname.endsWith('/filelist.json') ? [questie, related]
+      : [{ UIName: 'Questie', UIDownload: 'https://cdn.wowinterface.com/example.zip' }]);
+  });
+  const retail = { edition: 'retail' };
+  const classic = { edition: 'era' };
+  const { items, curseForgeSearch } = await catalog.search('qUeStIe', 'all', retail);
+  assert.deepEqual(items.map(({ title, isCompatible, canInstall }) => [title, isCompatible, canInstall]),
+    [['Questie', false, false], ['Questie Helper', true, true]]);
+  const browserSearch = new URL(curseForgeSearch);
+  assert.equal(browserSearch.origin + browserSearch.pathname, 'https://www.curseforge.com/wow/search');
+  assert.equal(browserSearch.searchParams.get('search'), 'qUeStIe');
+  const browse = await catalog.search('', 'all', retail);
+  assert.deepEqual(browse.items.map(({ title }) => title), ['Questie Helper']);
+  assert.equal(browse.curseForgeSearch, null);
+
+  const detail = await catalog.project('wowinterface', questie.UID, retail);
+  assert.equal(detail.isCompatible, false);
+  assert.equal(detail.canInstall, false);
+  await assert.rejects(catalog.release('wowinterface', questie.UID, retail), /No compatible release/);
+  const classicSearch = await catalog.search('Questie', 'wowinterface', classic);
+  assert.equal(classicSearch.items[0].canInstall, true);
+  assert.equal(classicSearch.curseForgeSearch, null);
+});
+
+test('WowUp Hub searches the Forever catalog and selects stable downloads per client', async () => {
+  const stable = { id: 252911, name: 'Questie.zip', published_at: '2026-11-21',
+    game_versions: [{ game_type: 'forever', interface: '16001' }],
+    download_url: 'https://github.com/Questie/Questie/releases/download/v1/Questie.zip' };
+  const questie = { id: 47671, repository_name: 'Questie', description: '<p>Quest helper</p>', releases: [
+    { ...stable, id: 3, published_at: '2026-11-22', prerelease: true },
+    { ...stable, id: 4, published_at: '2026-11-23', download_url: 'https://unrelated.example/Questie.zip' },
+    stable,
+  ] };
+  const another = { id: 275, repository_name: 'Better Vendor Price', releases: [
+    { ...stable, id: 7, name: 'BetterVendorPrice.zip',
+      download_url: 'https://github.com/mooreatv/BetterVendorPrice/releases/download/v1/BetterVendorPrice.zip' },
+  ] };
+  const catalog = newCatalog('', async (url) => {
+    assert.equal(url.host, 'hub.wowup.io');
+    if (url.pathname === '/addons/47671/releases/252911') return Response.json({ release: { body: '<p>Fixes</p>' } });
+    if (url.pathname === '/addons/47671') return Response.json({ addon: questie });
+    if (url.pathname === '/addons/featured/forever') return Response.json({ addons: [questie, another] });
+    assert.equal(url.pathname, '/addons/search/forever');
+    const query = url.searchParams.get('query');
+    return Response.json({ addons: query === 'Questie' ? [questie] : [another] });
+  });
+  const forever = { edition: 'forever', version: '1.60.1' };
+  for (const query of ['Questie', 'Better Vendor Price']) {
+    const { items, warnings } = await catalog.search(query, 'wowup', forever);
+    assert.deepEqual(warnings, []);
+    assert.equal(items[0].title, query);
+    assert.equal(items[0].canInstall, true);
+  }
+  const browse = await catalog.search('', 'wowup', forever);
+  assert.equal(browse.items.length, 2);
+  const detail = await catalog.project('wowup', '47671', forever);
+  assert.deepEqual(detail.versions, ['1.60.1']);
+  assert.equal(detail.description, 'Quest helper');
+  assert.equal(detail.changelog, 'Fixes');
+  assert.equal((await catalog.release('wowup', '47671', forever)).revision, '252911');
+  await assert.rejects(catalog.release('wowup', '47671', { edition: 'era' }), /No compatible release/);
+});
+
+test('CurseForge text search includes Classic results for Retail and preserves distribution restrictions', async () => {
+  const catalog = newCatalog('fixture-key', async (url) => {
+    assert.equal(url.pathname, '/v1/mods/search');
+    assert.equal(url.searchParams.get('gameVersionTypeId'), url.searchParams.get('searchFilter') ? null : '517');
+    return Response.json({ data: [
+      { id: 1, name: 'Questie', gameId: 432, latestFilesIndexes: [{ releaseType: 1, gameVersion: '2.5.6' }] },
+      { id: 2, name: 'Questie Helper', gameId: 432, allowModDistribution: false,
+        latestFilesIndexes: [{ releaseType: 1, gameVersion: '12.1.5' }] },
+    ] });
+  });
+  const retail = { edition: 'retail' };
+  const { items, curseForgeSearch } = await catalog.search('Questie', 'curseforge', retail);
+  assert.deepEqual(items.map(({ title, isCompatible, canInstall }) => [title, isCompatible, canInstall]),
+    [['Questie', false, false], ['Questie Helper', true, false]]);
+  assert.equal(curseForgeSearch, null);
+  const browse = await catalog.search('', 'curseforge', retail);
+  assert.deepEqual(browse.items.map(({ title }) => title), ['Questie Helper']);
+});
+
+test('finds the official Details! Forever files when no installable CurseForge result is available', async () => {
+  const forever = { edition: 'forever', version: '1.60.1' };
+  const query = 'Details Damage Meter';
+  const withoutKey = newCatalog('', async (url) => {
+    assert.notEqual(url.host, 'api.curseforge.com');
+    return Response.json(url.host === 'hub.wowup.io' ? { addons: [] } : []);
+  });
+  const { items, warnings } = await withoutKey.search(query, 'all', forever);
+  assert.deepEqual(warnings, []);
+  assert.equal(items.length, 1);
+  const [entry] = items;
+  assert.equal(entry.title, 'Details! Damage Meter');
+  assert.equal(entry.source, 'curseforge');
+  assert.equal(entry.isCompatible, true);
+  assert.equal(entry.canInstall, false);
+  assert.equal(entry.externalOnly, true);
+  const files = new URL(entry.website);
+  assert.equal(files.origin + files.pathname, 'https://www.curseforge.com/wow/addons/details/files/all');
+  assert.equal(files.searchParams.get('gameVersionTypeId'), '88568');
+  assert.deepEqual((await withoutKey.search('Details!', 'all', forever)).items, items);
+  assert.deepEqual((await withoutKey.search(query, 'wowup', forever)).items, []);
+  assert.deepEqual((await withoutKey.search(query, 'all', { edition: 'era' })).items, []);
+  assert.deepEqual((await withoutKey.search('', 'all', forever)).items, []);
+
+  const listing = { id: 61284, name: 'Details! Damage Meter', gameId: 432,
+    latestFilesIndexes: [{ releaseType: 1, gameVersion: '1.60.1' }],
+  };
+  const withKey = newCatalog('fixture-key', async () => Response.json({ data: [listing] }));
+  const live = await withKey.search(query, 'curseforge', forever);
+  assert.equal(live.items.length, 1);
+  assert.equal(live.items[0].id, '61284');
+  assert.equal(live.items[0].canInstall, true);
+  assert.equal(live.items[0].externalOnly, undefined);
+
+  listing.allowModDistribution = false;
+  assert.deepEqual((await withKey.search(query, 'curseforge', forever)).items, items);
 });
 
 test('CurseForge selects a stable compatible release and honors distribution permissions', async () => {

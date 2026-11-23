@@ -16,7 +16,9 @@ The app scans common Battle.net locations on macOS and Windows and common Wine a
 
 ## Discover and install
 
-Open **Discover** to browse or search the catalog for the selected client. Click an addon card to read its full description, supported versions, release notes, and screenshots when the provider offers them. WoWInterface and Tukui work out of the box. For CurseForge, use **Sources** to save your [CurseForge API key](https://support.curseforge.com/support/solutions/articles/9000208346) in the system credential store, or launch with the `CURSEFORGE_API_KEY` environment variable. CurseForge authors control whether their addons may be distributed by third-party clients.
+Open **Discover** to browse addons for the selected client or search across game editions. A search result with **No compatible release** can still be opened to check its supported versions. Click an addon card to see its full description, release notes, and screenshots when the provider offers them.
+
+WoWInterface, Tukui, and WowUp Hub work out of the box. WowUp Hub indexes addons published on GitHub and GitLab, including WoW Forever releases. To include CurseForge results in the app, save your [CurseForge API key](https://support.curseforge.com/support/solutions/articles/9000208346) in **Sources** or launch with the `CURSEFORGE_API_KEY` environment variable. Without a key, searches across all enabled sources offer a link to run the same search on the CurseForge website. CurseForge authors control whether their addons may be distributed by third-party clients.
 
 An install can contain several addon folders. AddOn Ledger groups those folders as one package. To migrate a manually installed addon, find it in Discover and choose **Install**. If the archive overlaps any manual folders, the app lists them and asks before replacing them. The migrated addon then receives catalog updates.
 
