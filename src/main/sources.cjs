@@ -58,7 +58,9 @@ async function get(url, label, { hosts, headers = () => ({}), limit = catalogLim
     }
     if (!response.ok || !response.body || Number(response.headers.get('content-length')) > limit) {
       await response.body?.cancel();
-      throw new Error(`${label} request failed (HTTP ${response.status}).`);
+      const error = new Error(`${label} request failed (HTTP ${response.status}).`);
+      error.status = response.status;
+      throw error;
     }
     return Readable.fromWeb(response.body);
   }
@@ -152,23 +154,28 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     return { items: items.slice(0, 60), warnings };
   }
 
-  async function release(source, id, client) {
+  async function release(source, id, client, revision) {
+    const unavailable = revision === undefined ? 'No compatible release is available for this WoW client.'
+      : 'The installed release is unavailable.';
     if (source === 'wowinterface' && /^\d{1,12}$/.test(id)) {
       const list = await cached(`${wowi}/filelist.json`, source);
       const entry = list.find((item) => String(item.UID) === id);
       if (!compatible(wowiVersions(entry || {}), client)) {
-        throw new Error('No compatible release is available for this WoW client.');
+        throw new Error(unavailable);
       }
       const [item] = await json(`${wowi}/filedetails/${id}.json`, source);
       if (item?.UIDownload) {
+        const currentRevision = `${item.UIDate}:${item.UIMD5 || item.UIVersion}`;
+        if (revision !== undefined && currentRevision !== revision) throw new Error(unavailable);
         return { source, id, title: item.UIName, version: item.UIVersion, time: Number(item.UIDate),
-          revision: `${item.UIDate}:${item.UIMD5 || item.UIVersion}`, url: item.UIDownload,
+          revision: currentRevision, url: item.UIDownload,
           hash: item.UIMD5 && ['md5', item.UIMD5] };
       }
     }
     if (source === 'tukui' && /^(elvui|tukui)$/.test(id)) {
       const item = await json(`${tukui}/addon/${id}`, source);
       if (item.url && compatible(item.patch, client)) {
+        if (revision !== undefined && item.version !== revision) throw new Error(unavailable);
         return { source, id, title: item.name, version: item.version, time: Date.parse(item.last_update),
           revision: item.version, url: item.url };
       }
@@ -179,11 +186,29 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
       if (mod.gameId !== 432 || mod.allowModDistribution === false) {
         throw new Error('This project is unavailable for third-party installation through CurseForge.');
       }
-      const params = new URLSearchParams({ pageSize: '50' });
-      if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
-      const { data: files } = await json(`${forge}/mods/${id}/files?${params}`, source);
-      const file = files.filter((item) => item.releaseType === 1 && item.isAvailable
-        && compatible(item.gameVersions, client)).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      const compatibleFile = (item) => item?.releaseType === 1 && item.isAvailable && compatible(item.gameVersions, client);
+      let file;
+      if (revision === undefined) {
+        const params = new URLSearchParams();
+        if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
+        const fileLimit = 10_000; // CurseForge caps index + pageSize.
+        for (let index = 0; index < fileLimit;) {
+          params.set('index', String(index));
+          params.set('pageSize', String(Math.min(50, fileLimit - index)));
+          const { data: files, pagination } = await json(`${forge}/mods/${id}/files?${params}`, source);
+          file = files.filter(compatibleFile).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+          index += files.length;
+          if (file || !files.length || !pagination || index >= pagination.totalCount) break;
+        }
+      } else {
+        if (!/^\d{1,12}$/.test(revision)) throw new Error(unavailable);
+        const result = await json(`${forge}/mods/${id}/files/${revision}`, source).catch((error) => {
+          if (error.status === 404) throw new Error(unavailable);
+          throw error;
+        });
+        file = result.data;
+        if (!compatibleFile(file) || String(file.id) !== revision) throw new Error(unavailable);
+      }
       if (file) {
         const url = file.downloadUrl
           || (await json(`${forge}/mods/${id}/files/${file.id}/download-url`, source)).data;
@@ -193,7 +218,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
           time: Date.parse(file.fileDate), revision: String(file.id), url, hash: hash && [hash.algo === 1 ? 'sha1' : 'md5', hash.value] };
       }
     }
-    throw new Error('No compatible release is available for this WoW client.');
+    throw new Error(unavailable);
   }
 
   async function download(file, destination) {

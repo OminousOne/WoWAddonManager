@@ -7,6 +7,7 @@ const test = require('node:test');
 const { pipeline } = require('node:stream/promises');
 const { ZipFile } = require('yazl');
 const { createLibrary } = require('../src/main/library.cjs');
+const { newCatalog } = require('../src/main/sources.cjs');
 const { openStore } = require('../src/main/store.cjs');
 
 async function fixture(t) {
@@ -30,6 +31,20 @@ function source(files, version = '1.0') {
     },
   };
 }
+
+test('lists addons through a symlinked Interface folder without a transaction workspace', async (t) => {
+  const { client, library, work } = await fixture(t);
+  const interfaceTarget = path.join(client.directory, 'SharedInterface');
+  const addon = path.join(interfaceTarget, 'AddOns', 'Local');
+  await fs.mkdir(addon, { recursive: true });
+  await fs.writeFile(path.join(addon, 'Local.toc'), '## Title: Local');
+  await fs.symlink(interfaceTarget, path.join(client.directory, 'Interface'), 'junction');
+
+  assert.deepEqual((await library.list(client)).map(({ folder }) => folder), ['Local']);
+  await assert.rejects(library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Alpha' }),
+    'tukui', 'example'), /not a regular directory/);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
 
 test('installs grouped ZIP folders and preserves unrelated addons', async (t) => {
   const { client, library, live, work } = await fixture(t);
@@ -110,6 +125,45 @@ test('checks for updates, protects pinned versions, repairs and removes grouped 
   assert.deepEqual(await fs.readdir(live), []);
 });
 
+test('repairs the installed CurseForge file when a newer release is available', async (t) => {
+  const { client, library, live } = await fixture(t);
+  const archive = path.join(client.directory, 'Example.zip');
+  const betaToc = '## Version: 1.0';
+  await source({ 'Alpha/Alpha.toc': '## Version: 1.0', 'Beta/Beta.toc': betaToc }).download(null, archive);
+  const archiveContents = await fs.readFile(archive);
+  const installed = { id: 1, releaseType: 1, isAvailable: true, gameVersions: ['12.1.5'], fileDate: '2026-01-01',
+    displayName: 'Example v1', downloadUrl: 'https://edge.forgecdn.net/example-v1.zip' };
+  const latest = { ...installed, id: 2, fileDate: '2026-02-01', displayName: 'Example v2',
+    downloadUrl: 'https://edge.forgecdn.net/example-v2.zip' };
+  const files = [installed];
+  const calls = [];
+  const catalog = newCatalog('fixture-key', async (url) => {
+    calls.push(url.pathname);
+    if (url.pathname === '/v1/mods/11') return Response.json({ data: { gameId: 432, name: 'Example' } });
+    if (url.pathname === '/v1/mods/11/files') return Response.json({ data: files });
+    if (url.pathname === '/v1/mods/11/files/1') return Response.json({ data: installed });
+    if (url.href === installed.downloadUrl) return new Response(archiveContents);
+    return new Response(null, { status: 404 });
+  });
+  const key = 'curseforge:11';
+  await library.install(client, catalog, 'curseforge', '11');
+  await library.pin(client, key, true);
+  await fs.rm(path.join(live, 'Beta'), { recursive: true });
+  files.unshift(latest);
+  assert.deepEqual(await library.updates(client, catalog), [
+    { key, revision: '1', version: 'Example v2', status: 'available' },
+  ]);
+
+  calls.length = 0;
+  await library.refresh(client, catalog, key, 'repair');
+  assert.deepEqual(calls, ['/v1/mods/11', '/v1/mods/11/files/1', '/example-v1.zip']);
+  const [addon] = await library.list(client);
+  assert.equal(addon.revision, '1');
+  assert.equal(addon.pinned, true);
+  assert.equal(addon.damaged, false);
+  assert.equal(await fs.readFile(path.join(live, 'Beta', 'Beta.toc'), 'utf8'), betaToc);
+});
+
 test('imports local archives without associating them with an online catalog', async (t) => {
   const { client, library, live } = await fixture(t);
   const archive = path.join(client.directory, 'Example.zip');
@@ -140,5 +194,62 @@ test('can take over manual addons with confirmation and protects other managed p
   assert.equal((await library.list(client))[0].source, 'tukui');
   await assert.rejects(library.install(client, next, 'tukui', 'other', 'install', async () => {
     assert.fail('Other managed addons should never allow replacement.');
-  }), /already exists/);
+  }), /already claimed by another managed addon/);
+});
+
+test('rejects manual migration when an incoming folder is claimed by a damaged package', async (t) => {
+  const { client, library, live, store, work } = await fixture(t);
+  await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
+  await fs.rm(path.join(live, 'Alpha'), { recursive: true });
+  await fs.mkdir(path.join(live, 'Beta'));
+  const manualToc = path.join(live, 'Beta', 'Beta.toc');
+  await fs.writeFile(manualToc, '## Title: Manual');
+  const before = structuredClone(store.read().packages);
+
+  await assert.rejects(library.install(client, source({
+    'alpha/alpha.toc': '## Title: Catalog Alpha',
+    'Beta/Beta.toc': '## Title: Catalog Beta',
+  }), 'tukui', 'other', 'install', async () => {
+    assert.fail('A conflicting folder claim should block migration before confirmation.');
+  }), /Folder “alpha” is already claimed by another managed addon/);
+
+  assert.deepEqual(await fs.readdir(live), ['Beta']);
+  assert.equal(await fs.readFile(manualToc, 'utf8'), '## Title: Manual');
+  assert.deepEqual(store.read().packages, before);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
+
+test('rejects importing a folder still claimed by a damaged package', async (t) => {
+  const { client, library, live, store } = await fixture(t);
+  await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
+  await fs.rm(path.join(live, 'Alpha'), { recursive: true });
+  const archive = path.join(client.directory, 'Local.zip');
+  await source({ 'alpha/alpha.toc': '## Title: Local' }).download(null, archive);
+
+  await assert.rejects(library.importZip(client, archive), /already claimed by another managed addon/);
+  assert.deepEqual(Object.keys(store.read().packages[client.id]), ['tukui:example']);
+  assert.deepEqual(await fs.readdir(live), []);
+  assert.equal((await library.list(client))[0].damaged, true);
+
+  await library.remove(client, 'tukui:example');
+  await library.importZip(client, archive);
+  assert.equal((await library.list(client))[0].title, 'Local');
+});
+
+test('rejects destructive operations on folders with conflicting recorded owners', async (t) => {
+  const { client, library, live, store } = await fixture(t);
+  const key = 'tukui:example';
+  const original = '## Title: Installed';
+  await library.install(client, source({ 'Alpha/Alpha.toc': original }), 'tukui', 'example');
+  await store.write((state) => {
+    state.packages[client.id]['local:legacy'] = { source: 'local', id: 'legacy', folders: ['alpha'] };
+  });
+  const before = structuredClone(store.read().packages);
+  const conflict = /already claimed by another managed addon/;
+
+  await assert.rejects(library.remove(client, key), conflict);
+  await assert.rejects(library.refresh(client, {}, key, 'update'), conflict);
+  await assert.rejects(library.refresh(client, {}, key, 'repair'), conflict);
+  assert.equal(await fs.readFile(path.join(live, 'Alpha', 'Alpha.toc'), 'utf8'), original);
+  assert.deepEqual(store.read().packages, before);
 });

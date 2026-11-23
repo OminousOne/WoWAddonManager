@@ -44,7 +44,8 @@ function libraryPaths(client) {
 }
 
 async function recover(paths, committed) {
-  if (!await realDirectory(paths.base, false) || !await realDirectory(paths.work, false)) return;
+  // A read-only scan can follow Interface when there is no transaction to recover.
+  if (!await realDirectory(paths.work, false) || !await realDirectory(paths.base, false)) return;
   const pending = await fs.readFile(paths.journal, 'utf8').then(JSON.parse).catch((error) => {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -98,10 +99,24 @@ function createLibrary(store) {
     return serial(async () => {
       const paths = libraryPaths(client);
       await recover(paths, committed(client));
-      const previous = packages(client)[key];
+      const installed = packages(client);
+      const previous = installed[key];
       if (Boolean(previous) !== existing) {
         throw new Error(existing ? 'This managed addon is no longer installed.' : 'This addon is already installed.');
       }
+      const normalize = (name) => name.normalize('NFC').toLowerCase();
+      const otherClaims = new Set(Object.entries(installed)
+        .filter(([owner]) => owner !== key)
+        .flatMap(([, { folders }]) => folders.map(normalize)));
+      function assertUnclaimed(folders) {
+        for (const folder of folders) {
+          if (otherClaims.has(normalize(folder))) {
+            throw new Error(`Folder “${folder}” is already claimed by another managed addon.`);
+          }
+        }
+      }
+      const owned = new Set(previous?.folders || []);
+      assertUnclaimed(owned);
       await realDirectory(paths.base, true);
       await realDirectory(paths.live, true);
       await fs.mkdir(paths.work, { mode: 0o700 });
@@ -109,8 +124,7 @@ function createLibrary(store) {
       try {
         const next = await prepare(paths, previous);
         const incoming = next?.folders || [];
-        const owned = new Set(previous?.folders || []);
-        const normalize = (name) => name.normalize('NFC').toLowerCase();
+        assertUnclaimed(incoming);
         const live = await fs.readdir(paths.live, { withFileTypes: true });
         const byName = new Map(live.map((entry) => [entry.name, entry]));
         const incomingNames = new Set(incoming.map(normalize));
@@ -161,10 +175,11 @@ function createLibrary(store) {
   function install(client, catalog, source, id, mode = 'install', authorizeReplace) {
     return change(client, packageKey(source, id), async (paths, previous) => {
       if (mode === 'update' && previous.pinned) throw new Error('Unpin this addon before updating it.');
-      const file = await catalog.release(source, id, client);
+      const installedRevision = mode === 'repair' ? previous.revision : undefined;
+      const file = await catalog.release(source, id, client, installedRevision);
       if (mode === 'update' && !newer(previous, file)) throw new Error('This addon is already up to date.');
-      if (mode === 'repair' && file.revision !== previous.revision) {
-        throw new Error('The installed release is unavailable. Use Update to install the current release.');
+      if (mode === 'repair' && file.revision !== installedRevision) {
+        throw new Error('The installed release is unavailable.');
       }
       const archive = path.join(paths.work, 'addon.zip');
       await catalog.download(file, archive);
