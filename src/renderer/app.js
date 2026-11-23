@@ -307,13 +307,23 @@ function renderCatalog(client) {
     if (item.summary) title.append(el('small', item.summary, 'summary'));
     const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
     const install = button(installed ? 'Installed' : item.canInstall ? 'Install' : 'Unavailable', () => run(async () => {
-      await api.install(state.selection, item.source, item.id);
-      await readAddons();
-      notify(`${item.title} installed.`);
+      if (await api.install(state.selection, item.source, item.id)) {
+        await readAddons();
+        notify(`${item.title} installed.`);
+      }
     }));
     install.disabled = installed || !item.canInstall || state.busy;
     install.setAttribute('aria-label', `${install.textContent} ${item.title}`);
-    return [title, sourceNames[item.source], install];
+    const links = el('div');
+    links.append(el('span', sourceNames[item.source]));
+    if (item.website) {
+      const open = button('Project page ↗', () => run(() => api.openProject(item.source, item.website)));
+      open.className = 'text-button';
+      open.disabled = state.busy;
+      open.setAttribute('aria-label', `Open the project page for ${item.title}`);
+      links.append(open);
+    }
+    return [title, links, install];
   });
   results.replaceChildren(table([['Addon', '64%'], ['Source', '18%'], ['Action', '18%']], rows));
 }

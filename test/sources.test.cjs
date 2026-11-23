@@ -38,3 +38,10 @@ test('CurseForge selects a stable compatible release and honors distribution per
   await assert.rejects(catalog.release('curseforge', '12', client), /unavailable for third-party/);
   assert.deepEqual(calls, ['/v1/mods/11', '/v1/mods/11/files', '/v1/mods/12']);
 });
+
+test('project links stay on the source’s HTTPS website', () => {
+  const { projectPage } = require('../src/main/sources.cjs');
+  assert.equal(projectPage('tukui', 'https://tukui.org/elvui'), 'https://tukui.org/elvui');
+  assert.equal(projectPage('tukui', 'https://tukui.org.invalid/elvui'), null);
+  assert.equal(projectPage('curseforge', 'file:///private/data'), null);
+});

@@ -7,8 +7,8 @@ const editions = {
   _classic_: ['Classic Progression', 'progression', 'wow_classic'],
   _classic_era_: ['Classic Era', 'era', 'wow_classic_era'],
   _anniversary_: ['Classic Anniversary', 'anniversary', 'wow_anniversary'],
-  _forever_: ['WoW Forever', 'forever', 'wow_forever'],
-  _classic_forever_: ['WoW Forever', 'forever', 'wow_forever'],
+  _forever_: ['WoW Forever', 'forever', 'wowf'],
+  _classic_forever_: ['WoW Forever', 'forever', 'wowf'],
   _ptr_: ['Retail PTR', 'retail', 'wowt'],
   _xptr_: ['Retail PTR 2', 'retail', 'wowxptr'],
   _beta_: ['Retail Beta', 'retail', 'wow_beta'],
@@ -96,12 +96,12 @@ async function discoverInstallations(roots) {
       const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
       if (!entries.some((entry) => (
         /^\.(flavor\.info|build\.info)$/i.test(entry.name) ||
-        /^Wow.*\.(exe|app)$/i.test(entry.name) ||
+        /^(?:Wow.*|World of Warcraft)\.(exe|app)$/i.test(entry.name) ||
         (entry.isDirectory() && /^Interface$/i.test(entry.name))
       ))) continue;
       const [label, edition, product] = editions[folder];
       const flavor = (await readSmall(path.join(directory, '.flavor.info'), 2048).catch(() => ''))
-        .match(/^\s*(wow[a-z0-9_]*)(?=[|\s]|$)/im)?.[1];
+        .match(/^\s*(wow[a-z0-9_]*)\s*(?:\||$)/im)?.[1]?.toLowerCase();
       const version = versions.get(flavor) || versions.get(product) || null;
       const track = gameTrack(edition, version);
       const id = await fs.realpath(directory).catch(() => null);

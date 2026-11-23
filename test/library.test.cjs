@@ -123,3 +123,22 @@ test('imports local archives without associating them with an online catalog', a
   await library.remove(client, addon.key);
   assert.deepEqual(await fs.readdir(live), []);
 });
+
+test('can take over manual addons with confirmation and protects other managed projects', async (t) => {
+  const { client, library, live } = await fixture(t);
+  await fs.mkdir(path.join(live, 'Alpha'), { recursive: true });
+  const original = path.join(live, 'Alpha', 'Alpha.toc');
+  const next = source({ 'Alpha/Alpha.toc': '## Title: Catalog copy' });
+  await fs.writeFile(original, '## Title: Local copy');
+  assert.equal(await library.install(client, next, 'tukui', 'example', 'install', async (_addon, folders) => {
+    assert.deepEqual(folders, ['Alpha']);
+    return false;
+  }), false);
+  assert.equal(await fs.readFile(original, 'utf8'), '## Title: Local copy');
+  assert.equal(await library.install(client, next, 'tukui', 'example', 'install', async () => true), true);
+  assert.equal(await fs.readFile(original, 'utf8'), '## Title: Catalog copy');
+  assert.equal((await library.list(client))[0].source, 'tukui');
+  await assert.rejects(library.install(client, next, 'tukui', 'other', 'install', async () => {
+    assert.fail('Other managed addons should never allow replacement.');
+  }), /already exists/);
+});

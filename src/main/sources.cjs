@@ -4,11 +4,24 @@ const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
 const sources = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge' };
+const websiteHosts = {
+  wowinterface: ['www.wowinterface.com', 'wowinterface.com'],
+  tukui: ['tukui.org', 'www.tukui.org'],
+  curseforge: ['www.curseforge.com', 'curseforge.com'],
+};
 const catalogLimit = 20 * 1024 ** 2;
 const archiveLimit = 128 * 1024 ** 2;
 const wowi = 'https://api.mmoui.com/v3/game/WOW';
 const tukui = 'https://api.tukui.org/v1';
 const forge = 'https://api.curseforge.com/v1';
+
+function projectPage(source, input) {
+  if (typeof input !== 'string' || input.length > 2048) return null;
+  const url = URL.parse(input);
+  if (url?.protocol !== 'https:' || url.port || url.username || url.password
+      || !websiteHosts[source]?.includes(url.hostname)) return null;
+  return url.href;
+}
 
 function compatible(versions, client) {
   return (versions || []).some((value) => {
@@ -88,8 +101,9 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     return cache.get(url);
   }
 
-  function publicEntry(source, id, title, author, summary, downloads = 0, canInstall = true) {
-    return { source, id: String(id), title, author, summary, downloads: Number(downloads) || 0, canInstall };
+  function publicEntry(source, id, title, author, summary, url, downloads = 0, canInstall = true) {
+    return { source, id: String(id), title, author, summary, website: projectPage(source, url),
+      downloads: Number(downloads) || 0, canInstall };
   }
 
   const wowiVersions = (item) => item.UICompatibility?.map(({ version }) => version);
@@ -102,12 +116,12 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     if (source === 'wowinterface') {
       const list = await cached(`${wowi}/filelist.json`, source);
       return list.filter((item) => compatible(wowiVersions(item), client))
-        .map((item) => publicEntry(source, item.UID, item.UIName, item.UIAuthorName, '', item.UIDownloadTotal));
+        .map((item) => publicEntry(source, item.UID, item.UIName, item.UIAuthorName, '', item.UIFileInfoURL, item.UIDownloadTotal));
     }
     if (source === 'tukui') {
       const list = await cached(`${tukui}/addons`, source);
       return list.filter((item) => compatible(item.patch, client))
-        .map((item) => publicEntry(source, item.slug, item.name, item.author, item.small_desc));
+        .map((item) => publicEntry(source, item.slug, item.name, item.author, item.small_desc, item.web_url));
     }
     const params = new URLSearchParams({ gameId: '432', searchFilter: query, pageSize: '50', sortField: '2', sortOrder: 'desc' });
     // Retail has a documented CurseForge type; other clients are filtered by the file metadata.
@@ -115,7 +129,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     const { data } = await json(`${forge}/mods/search?${params}`, source);
     return data.filter((item) => item.gameId === 432 && compatible(forgeVersions(item), client))
       .map((item) => publicEntry(source, item.id, item.name, item.authors?.map((author) => author.name).join(', '),
-        item.summary, item.downloadCount, item.allowModDistribution !== false));
+        item.summary, item.links?.websiteUrl, item.downloadCount, item.allowModDistribution !== false));
   }
 
   async function search(query, source, client) {
@@ -200,4 +214,4 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
   return { search, release, download, hasCurseForge: Boolean(key) };
 }
 
-module.exports = { compatible, newCatalog, sources };
+module.exports = { compatible, newCatalog, projectPage, sources };
