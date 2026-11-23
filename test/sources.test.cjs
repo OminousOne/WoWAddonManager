@@ -109,6 +109,44 @@ test('CurseForge text search includes Classic results for Retail and preserves d
   assert.deepEqual(browse.items.map(({ title }) => title), ['Questie Helper']);
 });
 
+test('finds the official Details! Forever files when no installable CurseForge result is available', async () => {
+  const forever = { edition: 'forever', version: '1.60.1' };
+  const query = 'Details Damage Meter';
+  const withoutKey = newCatalog('', async (url) => {
+    assert.notEqual(url.host, 'api.curseforge.com');
+    return Response.json(url.host === 'hub.wowup.io' ? { addons: [] } : []);
+  });
+  const { items, warnings } = await withoutKey.search(query, 'all', forever);
+  assert.deepEqual(warnings, []);
+  assert.equal(items.length, 1);
+  const [entry] = items;
+  assert.equal(entry.title, 'Details! Damage Meter');
+  assert.equal(entry.source, 'curseforge');
+  assert.equal(entry.isCompatible, true);
+  assert.equal(entry.canInstall, false);
+  assert.equal(entry.externalOnly, true);
+  const files = new URL(entry.website);
+  assert.equal(files.origin + files.pathname, 'https://www.curseforge.com/wow/addons/details/files/all');
+  assert.equal(files.searchParams.get('gameVersionTypeId'), '88568');
+  assert.deepEqual((await withoutKey.search('Details!', 'all', forever)).items, items);
+  assert.deepEqual((await withoutKey.search(query, 'wowup', forever)).items, []);
+  assert.deepEqual((await withoutKey.search(query, 'all', { edition: 'era' })).items, []);
+  assert.deepEqual((await withoutKey.search('', 'all', forever)).items, []);
+
+  const listing = { id: 61284, name: 'Details! Damage Meter', gameId: 432,
+    latestFilesIndexes: [{ releaseType: 1, gameVersion: '1.60.1' }],
+  };
+  const withKey = newCatalog('fixture-key', async () => Response.json({ data: [listing] }));
+  const live = await withKey.search(query, 'curseforge', forever);
+  assert.equal(live.items.length, 1);
+  assert.equal(live.items[0].id, '61284');
+  assert.equal(live.items[0].canInstall, true);
+  assert.equal(live.items[0].externalOnly, undefined);
+
+  listing.allowModDistribution = false;
+  assert.deepEqual((await withKey.search(query, 'curseforge', forever)).items, items);
+});
+
 test('CurseForge selects a stable compatible release and honors distribution permissions', async () => {
   const calls = [];
   const catalog = newCatalog('fixture-key', async (url, options) => {

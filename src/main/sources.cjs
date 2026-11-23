@@ -25,6 +25,13 @@ const tukui = 'https://api.tukui.org/v1';
 const forge = 'https://api.curseforge.com/v1';
 const hub = 'https://hub.wowup.io/addons';
 const hubDownloads = ['github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com', 'gitlab.com'];
+// The official Forever release is listed on CurseForge and absent from WowUp Hub.
+const detailsForever = {
+  id: '61284', title: 'Details! Damage Meter', author: 'Terciob',
+  summary: 'Damage and healing meter for World of Warcraft. Download the WoW Forever release from CurseForge.',
+  url: 'https://www.curseforge.com/wow/addons/details/files/all?gameVersionTypeId=88568&page=1&pageSize=20&showAlphaFiles=hide',
+  canInstall: false,
+};
 
 function sourceUrl(hosts, input) {
   if (typeof input !== 'string' || input.length > 2048) return null;
@@ -74,6 +81,8 @@ function forClient(entry, versions, client) {
 function matchesQuery(needle, ...fields) {
   return !needle || fields.some((field) => field?.toLowerCase().includes(needle));
 }
+
+const searchTitle = (value) => value.toLowerCase().replaceAll('!', '').replace(/\s+/g, ' ').trim();
 
 function interfaceVersion(input) {
   const value = Number(input);
@@ -259,7 +268,21 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
         warnings.push(`${sources[selected[index]]} is unavailable. Try searching again later.`);
       }
     });
-    const rank = (item) => item.title.toLowerCase() === needle ? 2 : item.title.toLowerCase().startsWith(needle) ? 1 : 0;
+    const titleQuery = searchTitle(query);
+    if (client.edition === 'forever' && (source === 'all' || source === 'curseforge')
+      && titleQuery && searchTitle(detailsForever.title).includes(titleQuery)) {
+      const index = items.findIndex((item) => item.source === 'curseforge' && item.id === detailsForever.id);
+      const result = items[index];
+      if (!result?.canInstall) {
+        const listing = { ...publicEntry('curseforge', detailsForever), isCompatible: true, externalOnly: true };
+        if (result) items[index] = listing;
+        else items.push(listing);
+      }
+    }
+    const rank = (item) => {
+      const title = searchTitle(item.title);
+      return title === titleQuery ? 2 : title.startsWith(titleQuery) ? 1 : 0;
+    };
     items.sort((a, b) => rank(b) - rank(a) || Number(b.isCompatible) - Number(a.isCompatible)
       || b.downloads - a.downloads || a.title.localeCompare(b.title));
     const curseForgeSearch = query && source === 'all' && !key

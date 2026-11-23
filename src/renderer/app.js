@@ -343,7 +343,12 @@ function media(source, url, { alt = '', cover = false, lazy = true } = {}) {
   return container;
 }
 
-function catalogInstall(item) {
+function catalogAction(item) {
+  if (item.externalOnly) {
+    const action = button('View Forever files ↗', () => run(() => api.openProject(item.source, item.website)), true);
+    action.disabled = state.busy;
+    return action;
+  }
   const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
   const availability = item.isCompatible === false ? 'No compatible release' : 'Unavailable';
   const action = button(installed ? 'Installed' : item.canInstall ? 'Install' : availability, () => run(async () => {
@@ -369,7 +374,7 @@ function catalogCard(item) {
   info.append(title, el('p', author, 'card-meta'));
   if (item.summary) info.append(el('p', item.summary, 'card-summary'));
   const footer = el('footer', null, 'card-actions');
-  footer.append(catalogInstall(item));
+  footer.append(catalogAction(item));
   card.append(media(item.source, item.image, { cover: item.source === 'wowinterface' }), info, footer);
   return card;
 }
@@ -389,8 +394,8 @@ function renderProject() {
   if (item.downloads) metadata.push(`${new Intl.NumberFormat().format(item.downloads)} downloads`);
   for (const line of metadata) release.append(el('p', line));
   const choices = el('div', null, 'actions');
-  choices.append(catalogInstall(item));
-  if (item.website) {
+  choices.append(catalogAction(item));
+  if (item.website && !item.externalOnly) {
     const external = button(`Open on ${sourceNames[item.source]} ↗`, () => run(() => api.openProject(item.source, item.website)));
     external.disabled = state.busy;
     choices.append(external);
@@ -443,7 +448,9 @@ async function openProject(item) {
   state.project = { entry: item, detail: null, returnView };
   state.view = 'project';
   window.scrollTo(0, 0);
-  await run(async () => { state.project.detail = await api.project(state.selection, item.source, item.id); });
+  await run(async () => {
+    state.project.detail = item.externalOnly ? item : await api.project(state.selection, item.source, item.id);
+  });
   $('#project-back').focus();
 }
 
