@@ -127,7 +127,6 @@ function parseToc(contents) {
 }
 
 const editionTocSuffixes = {
-  retail: ['Mainline'],
   era: ['Vanilla', 'Classic'],
   anniversary: ['BCC', 'TBC', 'Classic'],
   forever: ['Forever', 'Camelot', 'Mainline'],
@@ -141,8 +140,13 @@ const progressionTocSuffixes = {
 };
 
 function tocSuffixes({ edition, version }) {
+  const [major, minor, patch] = (version || '').split('.').map(Number);
+  if (edition === 'retail') {
+    // Retail added the Standard suffix in 12.1.5.
+    const supportsStandard = major > 12 || (major === 12 && (minor > 1 || (minor === 1 && patch >= 5)));
+    return supportsStandard ? ['Standard', 'Mainline'] : ['Mainline'];
+  }
   if (edition !== 'progression') return editionTocSuffixes[edition] || [];
-  const major = Number(version?.split('.')[0]);
   return [...(progressionTocSuffixes[major] || []), 'Classic'];
 }
 

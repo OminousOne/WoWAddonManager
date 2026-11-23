@@ -45,11 +45,13 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
       '_Titan.toc': 'Titan',
       '_Camelot.toc': 'Forever',
       '_Classic.toc': 'Classic',
+      '_Standard.toc': 'Standard',
       '_Mainline.toc': 'Mainline',
       '.toc': 'Generic',
     },
     ClassicOnly: { '_Classic.toc': 'Classic' },
     MainlineOnly: { '_Mainline.toc': 'Mainline' },
+    StandardOnly: { '_Standard.toc': 'Standard' },
     CataOnly: { '_Cata.toc': 'Cata' },
     CataWithFamily: { '_Cata.toc': 'Cata', '_Classic.toc': 'Classic' },
     Generic: { '.toc': 'Generic' },
@@ -64,6 +66,7 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
 
   const classicFamily = { ClassicOnly: 'Classic', CataWithFamily: 'Classic' };
   const mainlineFamily = { MainlineOnly: 'Mainline' };
+  const standardRetail = { ...mainlineFamily, StandardOnly: 'Standard' };
   const cases = [
     ['progression', '5.5.4.1', 'Mists', classicFamily],
     ['progression', '4.4.2.1', 'Cata', { ...classicFamily, CataOnly: 'Cata', CataWithFamily: 'Cata' }],
@@ -73,7 +76,10 @@ test('prefers the client TOC, then the game family TOC, then the generic TOC', a
     ['anniversary', '2.5.5.1', 'Anniversary', classicFamily],
     ['titan', '3.80.1.1', 'Titan', classicFamily],
     ['forever', '1.60.1.1', 'Forever', mainlineFamily],
-    ['retail', '12.1.5.1', 'Mainline', mainlineFamily],
+    ['retail', '12.1.4.1', 'Mainline', mainlineFamily],
+    ['retail', null, 'Mainline', mainlineFamily],
+    ['retail', '12.1.5.1', 'Standard', standardRetail],
+    ['retail', '12.2.0.1', 'Standard', standardRetail],
   ];
   for (const [edition, version, title, expected] of cases) {
     const library = await scanAddons({ directory, edition, version });
