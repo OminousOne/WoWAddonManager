@@ -70,9 +70,13 @@ function renderBuilder(client = builderClient()) {
     : client ? 'Ledger could not detect this client’s version. Rescan a fully installed client.'
       : 'Add a World of Warcraft installation to choose a target version.';
   $('#builder-output').hidden = !draft;
+  $('#builder-output').setAttribute('aria-busy', String(operation === 'generate'));
   $('#builder-summary').textContent = draft?.summary || '';
   $('#builder-target').textContent = draft ? `${draft.target.label} ${draft.target.version}` : '';
   $('#builder-generate').textContent = operation === 'generate' ? 'Generating…' : draft ? 'Generate revision' : 'Generate draft';
+  setPending($('#builder-generate'), operation === 'generate');
+  setPending($('#builder-connect'), operation === 'connect');
+  setPending($('#builder-export'), operation === 'export');
   $('#builder-stop').hidden = !['generate', 'connect'].includes(operation);
   $('#builder-install').disabled = busy || !compatible || !$('#builder-lua').value.trim();
   $('#builder-install').title = compatible ? '' : 'Select a matching WoW client or generate a revision for the selected client.';
@@ -179,7 +183,7 @@ $('#builder-install').addEventListener('click', () => {
       builderStatus('#builder-output-status', `Installed for ${client.label}. Open My AddOns to see it.`);
       await readAddons();
     }
-  });
+  }, $('#builder-install'));
 });
 
 restoreBuilder();

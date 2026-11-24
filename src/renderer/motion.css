@@ -1,0 +1,171 @@
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --motion-fast: 130ms;
+    --motion-normal: 210ms;
+    --motion-ease: cubic-bezier(.2, .75, .25, 1);
+  }
+
+  @keyframes reveal {
+    from { opacity: 0; translate: 0 var(--reveal-distance, 6px); }
+  }
+
+  @keyframes frame-reveal {
+    from { opacity: 0; scale: .985; }
+  }
+
+  @keyframes progress-sweep {
+    from { translate: -105% 0; }
+    to { translate: 105% 0; }
+  }
+
+  @keyframes checking-mark {
+    50% { box-shadow: inset 0 0 0 2px var(--oxblood), inset 0 0 0 3px #c3916490, 0 0 0 4px #782e3024; }
+  }
+
+  .sidebar > * { animation: reveal 260ms var(--motion-ease) backwards; }
+  .sidebar > .client-picker { animation-delay: 35ms; }
+  .sidebar > nav { animation-delay: 65ms; }
+  .sidebar > .sidebar-foot { animation-delay: 95ms; }
+  .page-head::before { animation: frame-reveal 400ms var(--motion-ease); }
+
+  :is(.button, .nav-button, .text-button, .card-title, .screenshot-button) {
+    transition: background-color var(--motion-fast), border-color var(--motion-fast),
+      color var(--motion-fast), opacity var(--motion-fast), scale var(--motion-fast) var(--motion-ease);
+  }
+  :is(.button, .nav-button, .text-button, .screenshot-button):active:not(:disabled) {
+    scale: .975;
+    transition-duration: 65ms;
+  }
+  .nav-button::before {
+    scale: 1 .25;
+    transition: opacity var(--motion-fast), scale var(--motion-normal) var(--motion-ease);
+  }
+  .nav-button[aria-current=page]::before { scale: 1 1; }
+  .nav-button > span {
+    transition: translate var(--motion-normal) var(--motion-ease), rotate var(--motion-normal) var(--motion-ease);
+  }
+  .nav-button:focus-visible > span { translate: 2px 0; }
+  #project-back {
+    transition: opacity var(--motion-fast), translate var(--motion-fast) var(--motion-ease);
+  }
+
+  select, .search, :is(.source-settings, .builder-panel) :is(input, textarea) {
+    transition: border-color var(--motion-fast), box-shadow var(--motion-fast), opacity var(--motion-fast);
+  }
+  :is(select, .source-settings input, .builder-panel :is(input, textarea)):focus-visible,
+  .search:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 16%, transparent); }
+  .search > span { transition: color var(--motion-fast), scale var(--motion-fast) var(--motion-ease); }
+  .search:focus-within > span { color: var(--focus); scale: 1.12; }
+
+  tbody tr, .source-settings article { transition: background-color var(--motion-fast); }
+  .badge, .beta-label {
+    transition: color var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast);
+  }
+
+  main > section, #project-back, #notice, #update-all,
+  #builder :is([role=status], #builder-output, #builder-account-row, #builder-key-form, #builder-stop) {
+    transition: opacity var(--motion-normal) var(--motion-ease), translate var(--motion-normal) var(--motion-ease);
+  }
+
+  @starting-style {
+    main > section:not([hidden]), #project-back:not([hidden]), #notice:not([hidden]), #update-all:not([hidden]),
+    #builder :is([role=status]:not(:empty), #builder-output, #builder-account-row, #builder-key-form, #builder-stop):not([hidden]) {
+      opacity: 0;
+      translate: 0 6px;
+    }
+    #project-back:not([hidden]) { translate: 5px 0; }
+  }
+
+  #results[data-results=table] { animation: reveal var(--motion-normal) var(--motion-ease); }
+  #results[data-results=empty]:not([data-loading=true]) { animation: reveal 170ms var(--motion-ease); }
+  #results[data-loading=true] .empty-mark { animation: checking-mark 1.35s ease-in-out infinite; }
+
+  .button[data-pending], #project[aria-busy=true] .project-overview { overflow: hidden; }
+  .button[data-pending]::after, #project[aria-busy=true] .project-overview::after {
+    background: linear-gradient(90deg, transparent 15%, currentColor 50%, transparent 85%);
+    animation: progress-sweep 1.15s ease-in-out infinite;
+  }
+
+  #catalog-loading { animation: reveal 170ms var(--motion-ease) 100ms both; }
+  .catalog-placeholder::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+    background: linear-gradient(100deg, transparent 20%, #fff9e8aa 50%, transparent 80%);
+    animation: progress-sweep 1.45s ease-in-out infinite;
+  }
+  .catalog-placeholder:nth-child(2)::after { animation-delay: -100ms; }
+  .catalog-placeholder:nth-child(3)::after { animation-delay: -200ms; }
+
+  .catalog-grid[data-reveal] > .addon-card:nth-child(-n+8),
+  #project > [data-reveal] {
+    animation: reveal 220ms var(--motion-ease) var(--reveal-delay, 0ms) backwards;
+  }
+  .catalog-grid > .addon-card:nth-child(n+3), #project > [data-reveal]:nth-child(3) { --reveal-delay: 24ms; }
+  .catalog-grid > .addon-card:nth-child(n+5), #project > [data-reveal]:nth-child(4) { --reveal-delay: 48ms; }
+  .catalog-grid > .addon-card:nth-child(n+7) { --reveal-delay: 72ms; }
+  .catalog-grid[data-reveal] > .addon-card:focus-within { animation: none; }
+
+  .addon-card {
+    transition: border-color var(--motion-fast), box-shadow var(--motion-normal) var(--motion-ease);
+  }
+  .addon-card:focus-within, .screenshot-button:focus-visible { box-shadow: 0 2px 8px #3b2d2026; }
+  .addon-media img {
+    transition: opacity var(--motion-normal) var(--motion-ease), scale 260ms var(--motion-ease);
+  }
+  .addon-media img:not([data-loaded]) { opacity: 0; }
+  #builder-lua { transition: opacity var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast); }
+
+  .release-notes summary::before { transition: transform var(--motion-normal) var(--motion-ease); }
+  .release-notes::details-content {
+    interpolate-size: allow-keywords;
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    transition: block-size var(--motion-normal) var(--motion-ease), opacity var(--motion-fast),
+      content-visibility var(--motion-normal) allow-discrete;
+  }
+  .release-notes[open]::details-content { block-size: auto; opacity: 1; }
+
+  dialog {
+    opacity: 0;
+    translate: 0 8px;
+    scale: .98;
+    pointer-events: none;
+    interactivity: inert;
+    transition: opacity var(--motion-normal) var(--motion-ease), translate var(--motion-normal) var(--motion-ease),
+      scale var(--motion-normal) var(--motion-ease), display var(--motion-normal) allow-discrete,
+      overlay var(--motion-normal) allow-discrete;
+  }
+  dialog[open] { opacity: 1; translate: 0; scale: 1; pointer-events: auto; interactivity: auto; }
+  dialog::backdrop {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--motion-normal), display var(--motion-normal) allow-discrete,
+      overlay var(--motion-normal) allow-discrete;
+  }
+  dialog[open]::backdrop { opacity: 1; pointer-events: auto; }
+  body:has(dialog[open]) dialog:not([open]),
+  body:has(dialog[open]) dialog:not([open])::backdrop { transition-duration: 0s; }
+  @starting-style {
+    dialog[open] { opacity: 0; translate: 0 8px; scale: .98; }
+    dialog[open]::backdrop { opacity: 0; }
+  }
+
+  @media (hover: hover) {
+    .nav-button:hover:not(:disabled) > span { translate: 2px 0; }
+    #builder-tab:hover:not(:disabled) > span { rotate: 16deg; }
+    #sources-tab:hover:not(:disabled) > span { rotate: 24deg; }
+    #project-back:hover:not(:disabled) { translate: -2px 0; }
+    .addon-card:hover { box-shadow: 0 3px 10px #3b2d2026; }
+    .addon-card:hover img, .screenshot-button:hover img { scale: 1.045; }
+    .card-title:hover:not(:disabled), .text-button:hover:not(:disabled) { color: var(--oxblood-hover); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, dialog::backdrop, .release-notes::details-content {
+    animation: none;
+    transition: none;
+  }
+}

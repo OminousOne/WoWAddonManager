@@ -88,6 +88,10 @@ async function smoke() {
       });
       socket = new WebSocket(page.webSocketDebuggerUrl);
       await retry(() => socket.readyState === WebSocket.OPEN);
+      const emulateMotion = (value) => command(socket, 'Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value }],
+      });
+      await emulateMotion('no-preference');
       await retry(() => evaluate(socket,
         "document.querySelector('#results').textContent.includes('RetailFixture')"));
       const editions = await evaluate(socket,
@@ -139,7 +143,23 @@ async function smoke() {
         return [document.querySelector('#builder-key-form').hidden, document.querySelector('#builder-key').type];
       })()`);
       assert.deepEqual(keyForm, [false, 'password']);
-      console.log('Packaged UI passed client switching, compact layout, keyboard focus, and builder checks.');
+      const accountReveal = await evaluate(socket, `(() => {
+        const auth = document.querySelector('#builder-auth');
+        const account = document.querySelector('#builder-account-row');
+        if (getComputedStyle(account).display !== 'none') return false;
+        auth.value = 'account';
+        auth.dispatchEvent(new Event('change'));
+        return account.getAnimations().some((animation) => animation.transitionProperty === 'opacity');
+      })()`);
+      assert.equal(accountReveal, true, 'The builder should animate an authentication form reveal');
+      await emulateMotion('reduce');
+      const reducedMotion = await evaluate(socket, `[
+        matchMedia('(prefers-reduced-motion: reduce)').matches,
+        document.getAnimations().filter((animation) => animation.transitionProperty).length,
+        getComputedStyle(document.querySelector('#builder-account-row')).opacity
+      ]`);
+      assert.deepEqual(reducedMotion, [true, 0, '1'], 'Reduce Motion should stop CSS transitions in progress');
+      console.log('Packaged UI passed client switching, compact layout, keyboard focus, builder, and Reduce Motion checks.');
     } catch (error) {
       if (logs) console.error(logs);
       throw error;
