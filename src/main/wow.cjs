@@ -126,14 +126,33 @@ function parseToc(contents) {
   };
 }
 
-const suffixes = {
-  retail: ['Mainline'],
-  progression: ['Mists', 'Cata', 'Wrath', 'WotLKC'],
+const editionTocSuffixes = {
   era: ['Vanilla', 'Classic'],
-  anniversary: ['BCC', 'TBC'],
-  forever: ['Forever', 'Camelot'],
-  titan: ['Titan', 'Wrath'],
+  anniversary: ['TBC', 'Classic'],
+  forever: ['Forever', 'Camelot', 'Mainline'],
+  titan: ['Titan', 'Wrath', 'Classic'],
 };
+
+const progressionTocSuffixes = {
+  3: ['Wrath', 'WotLKC'],
+  4: ['Cata'],
+  5: ['Mists'],
+};
+
+function tocSuffixes({ edition, version }) {
+  const [major, minor, patch] = (version || '').split('.').map(Number);
+  if (edition === 'retail') {
+    // Retail added the Standard suffix in 12.1.5.
+    const supportsStandard = major > 12 || (major === 12 && (minor > 1 || (minor === 1 && patch >= 5)));
+    return supportsStandard ? ['Standard', 'Mainline'] : ['Mainline'];
+  }
+  // The legacy -BCC suffix was supported from 2.5.1 through 2.5.4.
+  if (edition === 'anniversary' && major === 2 && minor === 5 && patch >= 1 && patch < 5) {
+    return ['BCC', ...editionTocSuffixes.anniversary];
+  }
+  if (edition !== 'progression') return editionTocSuffixes[edition] || [];
+  return [...(progressionTocSuffixes[major] || []), 'Classic'];
+}
 
 async function scanAddons(installation) {
   const directory = installation.addonsDirectory || path.join(installation.directory, 'Interface', 'AddOns');
@@ -141,17 +160,23 @@ async function scanAddons(installation) {
     if (error.code === 'ENOENT') return [];
     throw error;
   });
-  const addons = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async ({ name }) => {
+  const addonEntries = entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink());
+  const suffixes = tocSuffixes(installation);
+  const addons = await Promise.all(addonEntries.map(async (entry) => {
+    const { name } = entry;
     const folder = path.join(directory, name);
-    const names = await fs.readdir(folder, { withFileTypes: true });
+    const names = await fs.readdir(folder, { withFileTypes: true }).catch((error) => {
+      if (entry.isSymbolicLink() && ['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) return [];
+      throw error;
+    });
     const files = new Map(names.filter((entry) => entry.isFile())
       .map((entry) => [entry.name.toLowerCase(), entry.name]));
-    const candidates = (suffixes[installation.edition] || []).flatMap((suffix) => (
-      [`${name}-${suffix}.toc`, `${name}_${suffix}.toc`]
-    ));
+    const candidates = suffixes.flatMap((suffix) => {
+      const hyphenated = `${name}-${suffix}.toc`;
+      return suffix === 'BCC' ? [hyphenated] : [hyphenated, `${name}_${suffix}.toc`];
+    });
     candidates.push(`${name}.toc`);
-    const toc = candidates.map((candidate) => files.get(candidate.toLowerCase())).find(Boolean)
-      || [...files.values()].find((file) => file.toLowerCase().endsWith('.toc'));
+    const toc = candidates.map((candidate) => files.get(candidate.toLowerCase())).find(Boolean);
     if (!toc) return null;
     return { folder: name, ...parseToc(await readSmall(path.join(folder, toc))) };
   }));
