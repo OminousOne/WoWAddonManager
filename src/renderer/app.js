@@ -4,7 +4,7 @@ const edition = $('#edition');
 const filter = $('#filter');
 const state = {
   installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
-  updateResults: new Map(), checking: false, checkId: 0, project: null, catalogScroll: 0, libraryError: false,
+  updateResults: new Map(), checking: false, checkId: 0, project: null, catalogPending: false, libraryError: false,
 };
 const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', wowup: 'WowUp Hub', local: 'ZIP import' };
 const pages = {
@@ -160,20 +160,20 @@ function render() {
     const stateLabel = addon.damaged ? 'Missing files' : addon.pinned ? 'Pinned' : status?.status === 'available'
       ? 'Update available' : status?.status === 'current' ? 'Up to date' : status?.status === 'unavailable'
         ? 'Check failed' : addon.source ? 'Installed' : 'Manual';
-    const action = status?.status === 'available' && !addon.pinned
-      ? button('Update', () => changeAddon(addon, 'update'), true)
-      : button('Details', () => showAddon(addon));
-    action.disabled = state.busy;
-    action.setAttribute('aria-label', `${action.textContent} ${addon.title || addon.folder}`);
     const actions = el('div', null, 'row-actions');
-    actions.append(action);
-    if (action.textContent === 'Update') {
-      const more = button('⋯', () => showAddon(addon));
-      more.disabled = state.busy;
-      more.setAttribute('aria-label', `Details for ${addon.title || addon.folder}`);
-      actions.append(more);
+    if (status?.status === 'available' && !addon.pinned) {
+      const update = button('Update', () => changeAddon(addon, 'update'), true);
+      update.disabled = state.busy;
+      update.setAttribute('aria-label', `Update ${addon.title || addon.folder}`);
+      actions.append(update);
     }
-    return [title, version, el('span', stateLabel, status?.status === 'available' && !addon.pinned ? 'badge' : ''), actions];
+    const details = button('Details', () => showAddon(addon));
+    details.disabled = state.busy;
+    details.setAttribute('aria-label', `Details for ${addon.title || addon.folder}`);
+    if (isOnline(addon)) details.setAttribute('data-project-link', addon.key);
+    actions.append(details);
+    const attention = addon.damaged || (!addon.pinned && status?.status === 'available');
+    return [title, version, el('span', stateLabel, attention ? 'badge attention' : 'badge'), actions];
   });
   results.replaceChildren(table([['Addon', '37%'], ['Version', '22%'], ['Status', '20%'], ['Actions', '21%']], rows));
 }
@@ -193,7 +193,7 @@ async function checkUpdates(announce = false) {
   const checkId = ++state.checkId;
   state.checking = true;
   if (announce) notify();
-  if (!state.busy) render();
+  if (!state.busy && state.view === 'library') render();
   try {
     const statuses = await api.updates(client);
     if (state.checkId !== checkId || state.selection !== client) return;
@@ -210,7 +210,7 @@ async function checkUpdates(announce = false) {
   } finally {
     if (checkId === state.checkId) {
       state.checking = false;
-      if (!state.busy) render();
+      if (!state.busy && state.view === 'library') render();
     }
   }
 }
@@ -300,19 +300,29 @@ function updateAll() {
 }
 
 function renderCatalog(client) {
-  const items = state.catalog?.items;
+  const { items, query, warnings, curseForgeSearch } = state.catalog || {};
   const results = $('#catalog-results');
-  const curseForgeSearch = state.catalog?.curseForgeSearch;
+  const status = $('#catalog-status');
+  results.setAttribute('aria-busy', String(state.catalogPending));
+  status.replaceChildren();
+  if (state.catalogPending) status.append(el('p', 'Searching sources…'));
+  if (items) {
+    const count = `${items.length} ${items.length === 1 ? 'result' : 'results'}`;
+    status.append(el('p', query ? `${count} for “${query}”` : `${count} for this client`));
+    if (warnings.length) status.append(el('p', warnings.join('\n'), 'warning'));
+  }
   $('#query').disabled = !client || state.busy;
   $('#source').disabled = !client || state.busy;
   $('#source').querySelector('[value=curseforge]').disabled = !state.curseforge;
   $('#search-button').disabled = !client || state.busy;
   if (!client) {
-    results.replaceChildren(empty('Choose a WoW installation', 'Choose the installation you want to manage.',
-      button('Choose WoW folder', addFolder, true)));
+    const choose = button('Choose WoW folder', addFolder, true);
+    choose.disabled = state.busy;
+    results.replaceChildren(empty('Choose a WoW installation', 'Choose the installation you want to manage.', choose));
     return;
   }
   results.replaceChildren();
+  if (state.catalogPending) return;
   if (curseForgeSearch) {
     const external = button('Search CurseForge in browser ↗', () => run(() => api.openProject('curseforge', curseForgeSearch)));
     external.className = 'text-button catalog-external';
@@ -321,7 +331,7 @@ function renderCatalog(client) {
   }
   if (!items?.length) {
     results.append(empty(
-      state.busy ? 'Loading catalog…' : items ? 'No matching addons' : 'Find an addon',
+      items ? 'No matching addons' : 'Find an addon',
       items ? 'Try another name or change the source.' : 'Search by name or browse popular releases.',
     ));
     return;
@@ -372,6 +382,7 @@ function catalogCard(item) {
   const open = button(item.title, () => openProject(item));
   open.className = 'card-title';
   open.disabled = state.busy;
+  open.setAttribute('data-project-link', `${item.source}:${item.id}`);
   title.append(open);
   const info = el('div', null, 'card-info');
   const author = [sourceNames[item.source], item.author].filter(Boolean).join(' · ');
@@ -446,10 +457,9 @@ function renderProject() {
 
 async function openProject(item) {
   if (state.busy) return;
-  state.catalogScroll = window.scrollY;
   const returnView = state.view;
   $('#project-back').textContent = returnView === 'library' ? '← Back to My AddOns' : '← Back to Discover';
-  state.project = { entry: item, detail: null, returnView };
+  state.project = { entry: item, detail: null, returnView, scroll: window.scrollY };
   state.view = 'project';
   window.scrollTo(0, 0);
   await run(async () => {
@@ -460,14 +470,20 @@ async function openProject(item) {
 
 async function readCatalog() {
   if (!state.selection) return;
-  const response = await api.search(state.selection, $('#query').value, $('#source').value);
-  state.catalog = response;
-  if (response.warnings.length) notify(response.warnings.join('\n'));
+  const query = $('#query').value.trim();
+  state.catalog = null;
+  state.catalogPending = true;
+  render();
+  try {
+    state.catalog = { ...await api.search(state.selection, query, $('#source').value), query };
+  } finally {
+    state.catalogPending = false;
+  }
 }
 
 async function showPage(view) {
   if (state.busy || view === state.view) return;
-  const returning = state.view === 'project' && view === state.project.returnView;
+  const project = state.view === 'project' && view === state.project.returnView ? state.project : null;
   state.project = null;
   state.view = view;
   if (view === 'catalog' && !state.catalog) await run(readCatalog);
@@ -475,7 +491,13 @@ async function showPage(view) {
     notify();
     render();
   }
-  window.scrollTo(0, returning ? state.catalogScroll : 0);
+  window.scrollTo(0, project?.scroll || 0);
+  if (project) {
+    const key = `${project.entry.source}:${project.entry.id}`;
+    const trigger = [...$(`#${view}`).querySelectorAll('[data-project-link]')]
+      .find((button) => button.getAttribute('data-project-link') === key);
+    (trigger || $(`#${view}-tab`)).focus({ preventScroll: true });
+  }
 }
 
 async function run(operation) {
