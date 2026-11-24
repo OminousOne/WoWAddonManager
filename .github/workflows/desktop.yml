@@ -1,0 +1,64 @@
+name: Desktop builds
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            command: xvfb-run -a npm run smoke -- dist/linux-unpacked/addon-ledger
+            artifact: |
+              dist/*.AppImage
+              dist/*.deb
+          - name: macOS Apple Silicon
+            runner: macos-15
+            command: npm run smoke -- "dist/mac-arm64/AddOn Ledger.app/Contents/MacOS/AddOn Ledger"
+            artifact: dist/*.dmg
+          - name: macOS Intel
+            runner: macos-15-intel
+            command: npm run smoke -- "dist/mac/AddOn Ledger.app/Contents/MacOS/AddOn Ledger"
+            artifact: dist/*.dmg
+          - name: Windows x64
+            runner: windows-2025
+            command: npm run smoke -- "dist/win-unpacked/AddOn Ledger.exe"
+            artifact: dist/*.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run package
+      - name: Configure the Linux sandbox helper for the unpacked smoke test
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+      - name: Smoke test the packaged desktop app
+        run: ${{ matrix.command }}
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: AddOn Ledger - ${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error

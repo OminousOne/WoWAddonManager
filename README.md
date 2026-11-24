@@ -18,7 +18,7 @@ The app scans common Battle.net locations on macOS and Windows and common Wine a
 
 Open **Discover** to browse or search the catalog for the selected client. WoWInterface and Tukui work out of the box. For CurseForge, use **Sources** to save your [CurseForge API key](https://support.curseforge.com/support/solutions/articles/9000208346) in the system credential store, or launch with the `CURSEFORGE_API_KEY` environment variable. CurseForge authors control whether their addons may be distributed by third-party clients.
 
-An install can contain several addon folders. AddOn Ledger groups those folders together and preserves unrelated and manually installed folders if their names overlap.
+An install can contain several addon folders. AddOn Ledger groups those folders as one package. To migrate a manually installed addon, find it in Discover and choose **Install**. If the archive overlaps any manual folders, the app lists them and asks before replacing them. The migrated addon then receives catalog updates.
 
 ## Maintain a library
 
@@ -26,3 +26,17 @@ An install can contain several addon folders. AddOn Ledger groups those folders 
 - **Update all** applies available updates for the selected client and skips pinned addons. Open an addon's details to pin it, repair the currently installed release when the provider still offers it, or remove it.
 - **Import ZIP** adds a local addon archive to the selected client. ZIP imports and manually installed folders do not participate in catalog update checks.
 - Managed removals affect the recorded addon folders under `Interface/AddOns`. WoW's `WTF` folder and saved settings are preserved.
+
+## Build desktop packages
+
+On each target OS with Node.js 24, run:
+
+```sh
+npm ci
+npm test
+npm run package
+```
+
+The packages are written to `dist/`. The GitHub Actions **Desktop builds** workflow builds Linux x64 AppImage and Debian packages, macOS DMGs for Apple Silicon and Intel, and the Windows x64 installer. It then launches each packaged app against temporary Retail and Classic libraries. Download installers from the workflow run's artifacts.
+
+On Debian or Ubuntu, use the `.deb` if your system restricts user namespaces for AppImages. The macOS builds use ad-hoc signing and are not notarized. The Windows installer has no publisher signature.

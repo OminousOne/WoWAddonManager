@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('ledger', {
   setCurseForgeKey: request('sources:curseforge'),
   search: request('catalog:search'),
   install: request('catalog:install'),
+  openProject: request('catalog:project'),
   addons: request('addons:list'),
   updates: request('addons:updates'),
   changeAddon: request('addons:change'),

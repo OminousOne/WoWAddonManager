@@ -178,6 +178,47 @@ test('imports local archives without associating them with an online catalog', a
   assert.deepEqual(await fs.readdir(live), []);
 });
 
+test('can take over manual addons with confirmation and protects other managed projects', async (t) => {
+  const { client, library, live } = await fixture(t);
+  await fs.mkdir(path.join(live, 'Alpha'), { recursive: true });
+  const original = path.join(live, 'Alpha', 'Alpha.toc');
+  const next = source({ 'Alpha/Alpha.toc': '## Title: Catalog copy' });
+  await fs.writeFile(original, '## Title: Local copy');
+  assert.equal(await library.install(client, next, 'tukui', 'example', 'install', async (_addon, folders) => {
+    assert.deepEqual(folders, ['Alpha']);
+    return false;
+  }), false);
+  assert.equal(await fs.readFile(original, 'utf8'), '## Title: Local copy');
+  assert.equal(await library.install(client, next, 'tukui', 'example', 'install', async () => true), true);
+  assert.equal(await fs.readFile(original, 'utf8'), '## Title: Catalog copy');
+  assert.equal((await library.list(client))[0].source, 'tukui');
+  await assert.rejects(library.install(client, next, 'tukui', 'other', 'install', async () => {
+    assert.fail('Other managed addons should never allow replacement.');
+  }), /already claimed by another managed addon/);
+});
+
+test('rejects manual migration when an incoming folder is claimed by a damaged package', async (t) => {
+  const { client, library, live, store, work } = await fixture(t);
+  await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
+  await fs.rm(path.join(live, 'Alpha'), { recursive: true });
+  await fs.mkdir(path.join(live, 'Beta'));
+  const manualToc = path.join(live, 'Beta', 'Beta.toc');
+  await fs.writeFile(manualToc, '## Title: Manual');
+  const before = structuredClone(store.read().packages);
+
+  await assert.rejects(library.install(client, source({
+    'alpha/alpha.toc': '## Title: Catalog Alpha',
+    'Beta/Beta.toc': '## Title: Catalog Beta',
+  }), 'tukui', 'other', 'install', async () => {
+    assert.fail('A conflicting folder claim should block migration before confirmation.');
+  }), /Folder “alpha” is already claimed by another managed addon/);
+
+  assert.deepEqual(await fs.readdir(live), ['Beta']);
+  assert.equal(await fs.readFile(manualToc, 'utf8'), '## Title: Manual');
+  assert.deepEqual(store.read().packages, before);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
+
 test('rejects importing a folder still claimed by a damaged package', async (t) => {
   const { client, library, live, store } = await fixture(t);
   await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
