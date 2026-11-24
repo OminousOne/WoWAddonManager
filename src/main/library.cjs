@@ -25,6 +25,12 @@ function packageKey(source, id) {
   return `${source}:${id}`;
 }
 
+function newer(installed, latest) {
+  if (installed.revision === latest.revision) return false;
+  if (Number.isFinite(installed.time) && Number.isFinite(latest.time) && latest.time < installed.time) return false;
+  return true;
+}
+
 function libraryPaths(client) {
   const base = path.join(client.directory, 'Interface');
   const work = path.join(base, '.addon-ledger');
@@ -83,20 +89,34 @@ function createLibrary(store) {
       const managed = Object.values(packages(client));
       const owned = new Set(managed.flatMap(({ folders }) => folders));
       return [...local.filter(({ folder }) => !owned.has(folder)), ...managed.map((addon) => ({
-        ...addon, author: local.find(({ folder }) => addon.folders.includes(folder))?.author || '',
+        ...addon, key: packageKey(addon.source, addon.id), author: local.find(({ folder }) => addon.folders.includes(folder))?.author || '',
         damaged: !addon.folders.every((folder) => local.some((entry) => entry.folder === folder)),
       }))].sort((a, b) => (a.title || a.folder).localeCompare(b.title || b.folder));
     });
   }
 
-  async function change(client, key, prepare, { existing = false } = {}) {
+  async function change(client, key, prepare, { existing = false, authorizeReplace } = {}) {
     return serial(async () => {
       const paths = libraryPaths(client);
       await recover(paths, committed(client));
-      const previous = packages(client)[key];
+      const installed = packages(client);
+      const previous = installed[key];
       if (Boolean(previous) !== existing) {
         throw new Error(existing ? 'This managed addon is no longer installed.' : 'This addon is already installed.');
       }
+      const normalize = (name) => name.normalize('NFC').toLowerCase();
+      const otherClaims = new Set(Object.entries(installed)
+        .filter(([owner]) => owner !== key)
+        .flatMap(([, { folders }]) => folders.map(normalize)));
+      function assertUnclaimed(folders) {
+        for (const folder of folders) {
+          if (otherClaims.has(normalize(folder))) {
+            throw new Error(`Folder “${folder}” is already claimed by another managed addon.`);
+          }
+        }
+      }
+      const owned = new Set(previous?.folders || []);
+      assertUnclaimed(owned);
       await realDirectory(paths.base, true);
       await realDirectory(paths.live, true);
       await fs.mkdir(paths.work, { mode: 0o700 });
@@ -104,19 +124,30 @@ function createLibrary(store) {
       try {
         const next = await prepare(paths, previous);
         const incoming = next?.folders || [];
-        const owned = new Set(previous?.folders || []);
-        const normalize = (name) => name.normalize('NFC').toLowerCase();
-        const live = new Map((await fs.readdir(paths.live, { withFileTypes: true }))
-          .map((entry) => [normalize(entry.name), entry]));
-        for (const folder of incoming) {
-          const collision = live.get(normalize(folder));
-          if (collision && (!owned.has(collision.name) || !collision.isDirectory())) {
-            throw new Error(`Folder “${collision.name}” already exists. AddOn Ledger protects folders owned by other addons or installed manually.`);
+        assertUnclaimed(incoming);
+        const live = await fs.readdir(paths.live, { withFileTypes: true });
+        const byName = new Map(live.map((entry) => [entry.name, entry]));
+        const incomingNames = new Set(incoming.map(normalize));
+        const collisions = live.filter((entry) => incomingNames.has(normalize(entry.name))
+          && (!owned.has(entry.name) || !entry.isDirectory()));
+        if (collisions.length) {
+          const reserved = new Set(Object.values(packages(client)).flatMap(({ folders }) => folders.map(normalize)));
+          if (!authorizeReplace || collisions.some((entry) => !entry.isDirectory() || reserved.has(normalize(entry.name)))) {
+            throw new Error(`Folder “${collisions[0].name}” already exists. AddOn Ledger protects folders owned by other addons or installed manually.`);
           }
+          const local = new Set((await scanAddons(client)).map(({ folder }) => folder));
+          if (collisions.some(({ name }) => !local.has(name))) {
+            throw new Error('A folder of the same name already exists without an addon TOC. Move it before installing.');
+          }
+          const replacements = collisions.map(({ name }) => name);
+          if (!await authorizeReplace(next, replacements)) {
+            await recover(paths, committed(client));
+            return false;
+          }
+          for (const name of replacements) owned.add(name);
         }
         const outgoing = [...owned].filter((folder) => {
-          const entry = live.get(normalize(folder));
-          return entry?.name === folder && entry.isDirectory();
+          return byName.get(folder)?.isDirectory();
         });
         await fs.mkdir(paths.backup);
         await fs.writeFile(paths.journal + '.tmp', JSON.stringify({ token, incoming, outgoing }), { flag: 'wx' });
@@ -137,21 +168,76 @@ function createLibrary(store) {
       }
       // A committed transaction is still recoverable if cleanup cannot run immediately.
       await recover(paths, committed(client)).catch(() => {});
+      return true;
     });
   }
 
-  function install(client, catalog, source, id, options) {
+  function install(client, catalog, source, id, mode = 'install', authorizeReplace) {
     return change(client, packageKey(source, id), async (paths, previous) => {
-      const file = await catalog.release(source, id, client);
+      if (mode === 'update' && previous.pinned) throw new Error('Unpin this addon before updating it.');
+      const installedRevision = mode === 'repair' ? previous.revision : undefined;
+      const file = await catalog.release(source, id, client, installedRevision);
+      if (mode === 'update' && !newer(previous, file)) throw new Error('This addon is already up to date.');
+      if (mode === 'repair' && file.revision !== installedRevision) {
+        throw new Error('The installed release is unavailable.');
+      }
       const archive = path.join(paths.work, 'addon.zip');
       await catalog.download(file, archive);
       const folders = await extractAddons(archive, paths.stage);
       const { title, version, revision, time } = file;
       return { source, id, title, version, revision, time, folders, pinned: previous?.pinned || false };
-    }, options);
+    }, { existing: mode !== 'install', authorizeReplace });
   }
 
-  return { list, install };
+  function importZip(client, archive) {
+    const name = path.basename(archive, path.extname(archive));
+    const id = randomUUID();
+    return change(client, packageKey('local', id), async (paths) => {
+      const info = await fs.stat(archive);
+      if (!info.isFile() || info.size > 128 * 1024 ** 2) throw new Error('Choose a ZIP file under 128 MB.');
+      const folders = await extractAddons(archive, paths.stage);
+      const [entry] = await scanAddons({ ...client, addonsDirectory: paths.stage });
+      return { source: 'local', id, title: entry?.title || name, version: entry?.version || '', folders };
+    });
+  }
+
+  function remove(client, key) {
+    return change(client, key, () => null, { existing: true });
+  }
+
+  function pin(client, key, value) {
+    return serial(async () => {
+      const addon = packages(client)[key];
+      if (!addon || addon.source === 'local') throw new Error('Select an installed catalog addon.');
+      await store.write((state) => { state.packages[client.id][key].pinned = value; });
+    });
+  }
+
+  function refresh(client, catalog, key, mode) {
+    const addon = packages(client)[key];
+    if (!addon || addon.source === 'local') throw new Error('Select an installed catalog addon.');
+    return install(client, catalog, addon.source, addon.id, mode);
+  }
+
+  async function updates(client, catalog) {
+    const managed = Object.entries(packages(client)).filter(([, addon]) => addon.source !== 'local');
+    const results = [];
+    for (let index = 0; index < managed.length; index += 4) {
+      const batch = managed.slice(index, index + 4);
+      results.push(...await Promise.all(batch.map(async ([key, addon]) => {
+        try {
+          const latest = await catalog.release(addon.source, addon.id, client);
+          return { key, revision: addon.revision, version: latest.version,
+            status: newer(addon, latest) ? 'available' : 'current' };
+        } catch (error) {
+          return { key, revision: addon.revision, status: 'unavailable', reason: error.message };
+        }
+      })));
+    }
+    return results;
+  }
+
+  return { list, install, importZip, remove, pin, refresh, updates };
 }
 
 module.exports = { createLibrary };

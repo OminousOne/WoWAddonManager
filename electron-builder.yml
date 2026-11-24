@@ -1,0 +1,23 @@
+appId: io.github.ominousone.addonledger
+productName: AddOn Ledger
+artifactName: AddOn-Ledger-${version}-${os}-${arch}.${ext}
+directories:
+  output: dist
+files:
+  - src/**/*
+  - package.json
+asar: true
+npmRebuild: false
+icon: assets/icon.png
+mac:
+  category: public.app-category.utilities
+  target: dmg
+  identity: "-"
+  notarize: false
+win:
+  target: nsis
+linux:
+  category: Utility
+  target: [AppImage, deb]
+deb:
+  maintainer: Julien DeWolfe <JulienDeWolfe@protonmail.com>

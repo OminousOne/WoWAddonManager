@@ -3,7 +3,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { openStore } = require('./store.cjs');
 const { defaultRoots, discoverInstallations } = require('./wow.cjs');
-const { newCatalog, sources } = require('./sources.cjs');
+const { newCatalog, projectPage, sources } = require('./sources.cjs');
 const { createLibrary } = require('./library.cjs');
 
 const page = path.join(__dirname, '../renderer/index.html');
@@ -45,7 +45,7 @@ function createWindow() {
     height: 780,
     minWidth: 790,
     minHeight: 560,
-    backgroundColor: '#111721',
+    backgroundColor: '#0a101b',
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true },
   });
@@ -93,9 +93,26 @@ if (!app.requestSingleInstanceLock()) {
       }
       return catalog.search(query.trim().slice(0, 120), source, await requireInstallation(id));
     });
-    handle('catalog:install', async (_event, client, source, id) => {
+    handle('catalog:project', async (_event, source, url) => {
+      const page = Object.hasOwn(sources, source) ? projectPage(source, url) : null;
+      if (!page) throw new Error('This project page is unavailable.');
+      await shell.openExternal(page);
+    });
+    handle('catalog:install', async (event, client, source, id) => {
       if (typeof id !== 'string' || !Object.hasOwn(sources, source)) throw new Error('Select a valid addon result.');
-      return library.install(await requireInstallation(client), catalog, source, id);
+      return library.install(await requireInstallation(client), catalog, source, id, 'install', async (addon, folders) => {
+        const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+          type: 'warning',
+          title: 'Replace existing addon folders?',
+          message: `Install ${addon.title} from ${sources[source]} and manage it here?`,
+          detail: `The following manually installed folders and any edits inside them will be replaced. WoW settings in the WTF folder are preserved.\n\n${folders.join('\n')}`,
+          buttons: ['Cancel', 'Replace and manage'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        return response === 1;
+      });
     });
     handle('editions:list', () => findInstallations());
     handle('editions:add', async (event) => {
@@ -112,6 +129,32 @@ if (!app.requestSingleInstanceLock()) {
       return findInstallations();
     });
     handle('addons:list', async (_event, id) => library.list(await requireInstallation(id)));
+    handle('addons:updates', async (_event, id) => library.updates(await requireInstallation(id), catalog));
+    handle('addons:change', async (_event, id, key, action) => {
+      if (typeof key !== 'string' || !/^(wowinterface|tukui|curseforge|local):[a-z0-9-]{1,50}$/.test(key)) {
+        throw new Error('Select an installed addon.');
+      }
+      const client = await requireInstallation(id);
+      switch (action) {
+        case 'pin': return library.pin(client, key, true);
+        case 'unpin': return library.pin(client, key, false);
+        case 'remove': return library.remove(client, key);
+        case 'update':
+        case 'repair': return library.refresh(client, catalog, key, action);
+        default: throw new Error('Select a supported addon action.');
+      }
+    });
+    handle('addons:import', async (event, id) => {
+      const client = await requireInstallation(id);
+      const { canceled, filePaths } = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
+        title: 'Choose a World of Warcraft addon ZIP',
+        properties: ['openFile'],
+        filters: [{ name: 'Addon archives', extensions: ['zip'] }],
+      });
+      if (canceled) return false;
+      await library.importZip(client, filePaths[0]);
+      return true;
+    });
     handle('editions:open', async (_event, id) => {
       const { directory } = await requireInstallation(id);
       const error = await shell.openPath(directory);
