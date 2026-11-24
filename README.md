@@ -29,6 +29,14 @@ An install can contain several addon folders. AddOn Ledger groups those folders 
 - **Import ZIP** adds a local addon archive to the selected client. ZIP imports and manually installed folders do not participate in catalog update checks.
 - Managed removals affect the recorded addon folders under `Interface/AddOns`. WoW's `WTF` folder and saved settings are preserved.
 
+## Build a custom addon (Beta)
+
+Open **Build addon** and select a WoW client with a detected game version. Choose **Codex** to connect a ChatGPT account in the browser, or choose **Claude** and check an existing Claude Code login after signing in with `claude auth login`. Either provider also accepts an API key saved using your system's secure storage. Inference uses the connected account or key and is subject to the provider's usage limits.
+
+Name the addon and describe what it should do. Ledger sends the request and any current draft Lua to the selected provider through the Claude Agent SDK or Codex SDK. Review or edit the generated Lua, or describe a change and generate a revision. The builder keeps one draft on this device between launches.
+
+**Install addon** installs the draft as a local addon for a matching WoW client. Installing the same draft again replaces its earlier installation through the library's normal transaction flow. **Export ZIP** saves a standalone addon archive. Ledger validates Lua syntax and creates the TOC for the draft's target when you install or export. Test the result in WoW to verify its behavior.
+
 ## Build desktop packages
 
 On each target OS with Node.js 24, run:

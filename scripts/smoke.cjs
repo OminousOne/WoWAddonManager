@@ -20,12 +20,12 @@ async function retry(action, timeout = 25000) {
   throw lastError || new Error('Timed out waiting for the desktop app.');
 }
 
-async function evaluate(socket, expression) {
+async function command(socket, method, params = {}) {
   const id = Math.floor(Math.random() * 1e9);
   const response = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       socket.removeEventListener('message', receive);
-      reject(new Error('Timed out evaluating the renderer.'));
+      reject(new Error(`Timed out running ${method}.`));
     }, 3000);
     function receive({ data }) {
       const message = JSON.parse(data);
@@ -35,12 +35,17 @@ async function evaluate(socket, expression) {
       resolve(message);
     }
     socket.addEventListener('message', receive);
-    socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+    socket.send(JSON.stringify({ id, method, params }));
   });
   if (response.error || response.result.exceptionDetails) {
     throw new Error(response.error?.message || response.result.exceptionDetails.text);
   }
-  return response.result.result.value;
+  return response.result;
+}
+
+async function evaluate(socket, expression) {
+  const { result } = await command(socket, 'Runtime.evaluate', { expression, returnByValue: true });
+  return result.value;
 }
 
 async function smoke() {
@@ -55,6 +60,8 @@ async function smoke() {
   try {
     await fs.mkdir(userData);
     await fs.writeFile(path.join(userData, 'library.json'), JSON.stringify({ roots: [game], packages: {} }));
+    await fs.mkdir(game);
+    await fs.writeFile(path.join(game, '.build.info'), 'Product|Version\nwow|12.1.5.76543\nwow_anniversary|2.5.5.67890\n');
     for (const [edition, addon] of [['_retail_', 'RetailFixture'], ['_anniversary_', 'ClassicFixture']]) {
       const directory = path.join(game, edition, 'Interface', 'AddOns', addon);
       await fs.mkdir(directory, { recursive: true });
@@ -99,7 +106,40 @@ async function smoke() {
         document.querySelector('#notice').textContent
       ]`);
       assert.deepEqual(checks, ['AddOn Ledger', 'undefined', '']);
-      console.log('Packaged UI opened and switched between Retail and Classic Anniversary libraries.');
+      for (const width of [790, 480, 320]) {
+        await command(socket, 'Emulation.setDeviceMetricsOverride', { width, height: 560, deviceScaleFactor: 1, mobile: false });
+        await retry(() => evaluate(socket, `window.innerWidth === ${width}`));
+        const fits = await evaluate(socket,
+          'document.documentElement.scrollWidth <= window.innerWidth');
+        assert.equal(fits, true, `The workspace overflows at ${width}px`);
+      }
+      const details = await evaluate(socket, `(() => {
+        const trigger = document.querySelector('#results button');
+        trigger.focus();
+        trigger.click();
+        const dialog = document.querySelector('#addon-dialog');
+        const title = dialog.open ? dialog.querySelector('h2').textContent : null;
+        document.querySelector('#dialog-close').click();
+        return [title, document.activeElement === trigger];
+      })()`);
+      assert.deepEqual(details, ['ClassicFixture', true]);
+      await evaluate(socket, "document.querySelector('#builder-tab').click()");
+      const builder = await evaluate(socket, `[
+        document.querySelector('#page-title').textContent,
+        document.querySelector('#builder-client').textContent,
+        Array.from(document.querySelector('#builder-provider').options, (item) => item.textContent),
+        document.querySelector('#builder-generate').disabled,
+        document.documentElement.scrollWidth <= window.innerWidth
+      ]`);
+      assert.deepEqual(builder, ['Custom Addon Builder · Beta', 'Target: Classic Anniversary 2.5.5.67890', ['Codex', 'Claude'], true, true]);
+      const keyForm = await evaluate(socket, `(() => {
+        const auth = document.querySelector('#builder-auth');
+        auth.value = 'key';
+        auth.dispatchEvent(new Event('change'));
+        return [document.querySelector('#builder-key-form').hidden, document.querySelector('#builder-key').type];
+      })()`);
+      assert.deepEqual(keyForm, [false, 'password']);
+      console.log('Packaged UI passed client switching, compact layout, keyboard focus, and builder checks.');
     } catch (error) {
       if (logs) console.error(logs);
       throw error;

@@ -101,7 +101,7 @@ function createLibrary(store) {
       await recover(paths, committed(client));
       const installed = packages(client);
       const previous = installed[key];
-      if (Boolean(previous) !== existing) {
+      if (existing !== null && Boolean(previous) !== existing) {
         throw new Error(existing ? 'This managed addon is no longer installed.' : 'This addon is already installed.');
       }
       const normalize = (name) => name.normalize('NFC').toLowerCase();
@@ -174,10 +174,11 @@ function createLibrary(store) {
   function install(client, catalog, source, id, mode = 'install', authorizeReplace) {
     return change(client, packageKey(source, id), async (paths, previous) => {
       if (mode === 'update' && previous.pinned) throw new Error('Unpin this addon before updating it.');
-      const file = await catalog.release(source, id, client, mode === 'repair' ? previous.revision : undefined);
+      const installedRevision = mode === 'repair' ? previous.revision : undefined;
+      const file = await catalog.release(source, id, client, installedRevision);
       if (mode === 'update' && !newer(previous, file)) throw new Error('This addon is already up to date.');
-      if (mode === 'repair' && file.revision !== previous.revision) {
-        throw new Error('The installed release is unavailable. Use Update to install the current release.');
+      if (mode === 'repair' && file.revision !== installedRevision) {
+        throw new Error('The installed release is unavailable.');
       }
       const archive = path.join(paths.work, 'addon.zip');
       await catalog.download(file, archive);
@@ -197,6 +198,21 @@ function createLibrary(store) {
       const [entry] = await scanAddons({ ...client, addonsDirectory: paths.stage });
       return { source: 'local', id, title: entry?.title || name, version: entry?.version || '', folders };
     });
+  }
+
+  function installCustom(client, addon) {
+    const { id, title, folder, files } = addon;
+    return change(client, packageKey('local', id), async (paths, previous) => {
+      if (previous && (!previous.custom || previous.folders.length !== 1 || previous.folders[0] !== folder)) {
+        throw new Error('This draft does not own the installed addon.');
+      }
+      const directory = path.join(paths.stage, folder);
+      await fs.mkdir(directory, { recursive: true });
+      for (const [name, contents] of Object.entries(files)) {
+        await fs.writeFile(path.join(directory, name), contents, { flag: 'wx' });
+      }
+      return { source: 'local', id, title, folders: [folder], custom: true };
+    }, { existing: null });
   }
 
   function remove(client, key) {
@@ -235,7 +251,7 @@ function createLibrary(store) {
     return results;
   }
 
-  return { list, install, importZip, remove, pin, refresh, updates };
+  return { list, install, importZip, installCustom, remove, pin, refresh, updates };
 }
 
 module.exports = { createLibrary };

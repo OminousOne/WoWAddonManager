@@ -5,6 +5,8 @@ const { openStore } = require('./store.cjs');
 const { defaultRoots, discoverInstallations } = require('./wow.cjs');
 const { catalogImage, newCatalog, projectPage, sources } = require('./sources.cjs');
 const { createLibrary } = require('./library.cjs');
+const { createBuilderProviders, providerName } = require('./builder-providers.cjs');
+const { interfaceVersion, generationPrompt, customAddon, exportAddon } = require('./custom-addon.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'ledger-image', privileges: { standard: true, secure: true } }]);
 
@@ -12,9 +14,19 @@ const page = path.join(__dirname, '../renderer/index.html');
 const pageUrl = pathToFileURL(page).href;
 let store;
 let catalog = newCatalog();
+let savedKeyActive = false;
 
 function setCatalog(key) {
-  catalog = newCatalog(key || process.env.CURSEFORGE_API_KEY?.trim());
+  catalog = newCatalog(key || undefined);
+  savedKeyActive = Boolean(key);
+}
+
+function sourceSettings() {
+  return {
+    curseforge: catalog.hasCurseForge,
+    curseforgeKeySource: savedKeyActive ? 'saved' : catalog.hasCurseForge ? 'environment' : null,
+    curseforgeKeySaved: Boolean(store.read().curseforgeKey),
+  };
 }
 
 function findInstallations() {
@@ -47,7 +59,7 @@ function createWindow() {
     height: 780,
     minWidth: 790,
     minHeight: 560,
-    backgroundColor: '#0a101b',
+    backgroundColor: '#ede1cb',
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true },
   });
@@ -68,6 +80,76 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     store = await openStore(app.getPath('userData'));
     const library = createLibrary(store);
+    const builder = createBuilderProviders(path.join(app.getPath('userData'), 'builder-agents'), (url) => shell.openExternal(url));
+    app.on('before-quit', builder.stop);
+    app.on('window-all-closed', builder.stop);
+    handle('builder:keys', () => Object.keys(store.read().builderKeys || {}));
+    handle('builder:key', async (_event, provider, value) => {
+      providerName(provider);
+      if (typeof value !== 'string' || value.length > 1024 || /[^!-~]/.test(value.trim())) {
+        throw new Error('Enter a valid provider API key.');
+      }
+      const key = value.trim();
+      if (key && (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text')) {
+        throw new Error('Secure key storage is unavailable. Connect with an account instead.');
+      }
+      await store.write((state) => {
+        const keys = state.builderKeys ||= {};
+        if (key) keys[provider] = safeStorage.encryptString(key).toString('base64');
+        else delete keys[provider];
+      });
+      return Boolean(key);
+    });
+    handle('builder:account', (_event, provider) => builder.account(provider, 'connect'));
+    handle('builder:stop', () => builder.stop());
+    handle('builder:generate', async (_event, id, provider, mode, input) => {
+      providerName(provider);
+      const savedKey = mode === 'key' && store.read().builderKeys?.[provider];
+      let key;
+      if (savedKey) {
+        try {
+          key = safeStorage.decryptString(Buffer.from(savedKey, 'base64'));
+        } catch {
+          throw new Error('The saved API key is unavailable. Save the key again.');
+        }
+      }
+      return builder.generate(provider, mode, key, async () => {
+        const client = await requireInstallation(id);
+        return {
+          prompt: generationPrompt(client, input),
+          target: { interface: interfaceVersion(client), edition: client.edition, version: client.version, label: client.label },
+        };
+      });
+    });
+    handle('builder:export', async (event, draft) => {
+      const addon = customAddon(draft);
+      const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), {
+        title: 'Export custom addon',
+        defaultPath: (addon.title.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'Custom-Addon') + '.zip',
+        filters: [{ name: 'Addon archive', extensions: ['zip'] }],
+      });
+      if (canceled || !filePath) return false;
+      await exportAddon(addon, filePath);
+      return true;
+    });
+    handle('builder:install', async (event, id, draft) => {
+      const client = await requireInstallation(id);
+      const addon = customAddon(draft);
+      if (draft.edition !== client.edition || addon.interface !== interfaceVersion(client)) {
+        throw new Error('Select the WoW client this draft targets, or generate a revision for the selected client.');
+      }
+      const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+        type: 'question',
+        message: `Install ${addon.title} for ${client.label}?`,
+        detail: `${client.directory}\n\nThis replaces any earlier installation of this draft in that client.`,
+        buttons: ['Cancel', 'Install addon'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (response !== 1) return false;
+      return library.installCustom(client, addon);
+    });
     protocol.handle('ledger-image', async (request) => {
       try {
         const address = new URL(request.url);
@@ -82,7 +164,7 @@ if (!app.requestSingleInstanceLock()) {
       try { setCatalog(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))); }
       catch { setCatalog(); }
     }
-    handle('sources:list', () => ({ curseforge: catalog.hasCurseForge }));
+    handle('sources:list', sourceSettings);
     handle('sources:curseforge', async (_event, value) => {
       if (typeof value !== 'string' || value.length > 512 || /[^!-~]/.test(value.trim())) {
         throw new Error('Enter a valid CurseForge API key.');
@@ -96,7 +178,7 @@ if (!app.requestSingleInstanceLock()) {
         else delete state.curseforgeKey;
       });
       setCatalog(key);
-      return { curseforge: catalog.hasCurseForge };
+      return sourceSettings();
     });
     handle('catalog:search', async (_event, id, query, source) => {
       if (typeof query !== 'string' || (source !== 'all' && !Object.hasOwn(sources, source))) {

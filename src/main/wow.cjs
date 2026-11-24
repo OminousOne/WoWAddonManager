@@ -85,27 +85,46 @@ function gameTrack(edition, version) {
 async function discoverInstallations(roots) {
   const found = new Map();
   for (const candidate of roots) {
-    const selected = await fs.realpath(candidate).catch(() => null);
+    const requested = path.resolve(candidate);
+    const selected = await fs.realpath(requested).catch(() => null);
     if (!selected) continue;
-    const name = path.basename(selected).toLowerCase();
-    const root = editions[name] ? path.dirname(selected) : selected;
-    const children = editions[name] ? [name] : Object.keys(editions);
+    const requestedName = path.basename(requested).toLowerCase();
+    const selectedName = path.basename(selected).toLowerCase();
+    const namedClient = Object.hasOwn(editions, requestedName);
+    const client = namedClient ? requestedName : Object.hasOwn(editions, selectedName) ? selectedName : null;
+    const root = client ? path.dirname(namedClient ? requested : selected) : selected;
+    const children = client ? [client] : Object.keys(editions);
     const versions = buildVersions(await readSmall(path.join(root, '.build.info')).catch(() => ''));
     for (const folder of children) {
-      const directory = editions[name] ? selected : path.join(root, folder);
+      const directory = client ? selected : path.join(root, folder);
       const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
-      if (!entries.some((entry) => (
-        /^\.(flavor\.info|build\.info)$/i.test(entry.name) ||
-        /^(?:Wow.*|World of Warcraft)\.(exe|app)$/i.test(entry.name) ||
-        (entry.isDirectory() && /^Interface$/i.test(entry.name))
-      ))) continue;
+      const metadata = entries.find((entry) => /^\.build\.info$/i.test(entry.name));
+      const flavorFile = entries.find((entry) => /^\.flavor\.info$/i.test(entry.name));
+      const executable = entries.some((entry) => /^(?:Wow.*|World of Warcraft)\.(exe|app)$/i.test(entry.name));
+      if (!metadata && !flavorFile && !executable) {
+        const interfaceDir = entries.find((entry) => /^Interface$/i.test(entry.name));
+        if (!interfaceDir) continue;
+        const details = await fs.stat(path.join(directory, interfaceDir.name)).catch(() => null);
+        if (!details?.isDirectory()) continue;
+      }
       const [label, edition, product] = editions[folder];
-      const flavor = (await readSmall(path.join(directory, '.flavor.info'), 2048).catch(() => ''))
+      const flavor = flavorFile && (await readSmall(path.join(directory, flavorFile.name), 2048).catch(() => ''))
         .match(/^\s*(wow[a-z0-9_]*)\s*(?:\||$)/im)?.[1]?.toLowerCase();
-      const version = versions.get(flavor) || versions.get(product) || null;
-      const track = gameTrack(edition, version);
+      const localVersions = metadata && buildVersions(await readSmall(path.join(directory, metadata.name)).catch(() => ''));
+      let version = versions.get(flavor) || localVersions?.get(flavor)
+        || versions.get(product) || localVersions?.get(product) || null;
       const id = await fs.realpath(directory).catch(() => null);
-      if (id) found.set(id, { id, directory: id, label, edition: track, version });
+      if (!id) continue;
+      const resolvedParent = path.dirname(id);
+      if (!version && resolvedParent !== root) {
+        const resolvedVersions = buildVersions(await readSmall(path.join(resolvedParent, '.build.info')).catch(() => ''));
+        version = resolvedVersions.get(flavor) || resolvedVersions.get(product) || null;
+      }
+      const track = gameTrack(edition, version);
+      const existing = found.get(id);
+      if (!existing || (!existing.version && version)) {
+        found.set(id, { id, directory: id, label, edition: track, version });
+      }
     }
   }
   return [...found.values()];
