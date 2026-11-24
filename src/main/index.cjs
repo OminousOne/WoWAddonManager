@@ -219,11 +219,12 @@ if (!app.requestSingleInstanceLock()) {
       });
       if (canceled) return null;
       const [folder] = filePaths;
-      if (!(await discoverInstallations([folder])).length) {
+      const [added] = await discoverInstallations([folder]);
+      if (!added) {
         throw new Error('Select the World of Warcraft folder or a client folder such as _retail_.');
       }
       await store.write((state) => { state.roots = [...new Set([...state.roots, folder])]; });
-      return findInstallations();
+      return { installations: await findInstallations(), selected: added.id };
     });
     handle('addons:list', async (_event, id) => library.list(await requireInstallation(id)));
     handle('addons:updates', async (_event, id) => library.updates(await requireInstallation(id), catalog));

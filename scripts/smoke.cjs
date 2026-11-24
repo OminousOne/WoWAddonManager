@@ -113,8 +113,11 @@ async function smoke() {
       for (const width of [790, 480, 320]) {
         await command(socket, 'Emulation.setDeviceMetricsOverride', { width, height: 560, deviceScaleFactor: 1, mobile: false });
         await retry(() => evaluate(socket, `window.innerWidth === ${width}`));
-        const fits = await evaluate(socket,
-          'document.documentElement.scrollWidth <= window.innerWidth');
+        const fits = await evaluate(socket, `(() => {
+          const results = document.querySelector('#results');
+          return document.documentElement.scrollWidth <= window.innerWidth
+            && results.scrollWidth <= results.clientWidth;
+        })()`);
         assert.equal(fits, true, `The workspace overflows at ${width}px`);
       }
       const details = await evaluate(socket, `(() => {
@@ -135,7 +138,7 @@ async function smoke() {
         document.querySelector('#builder-generate').disabled,
         document.documentElement.scrollWidth <= window.innerWidth
       ]`);
-      assert.deepEqual(builder, ['Custom Addon Builder · Beta', 'Target: Classic Anniversary 2.5.5.67890', ['Codex', 'Claude'], true, true]);
+      assert.deepEqual(builder, ['Build an AddOn', 'Target: Classic Anniversary 2.5.5.67890', ['Codex', 'Claude'], true, true]);
       const keyForm = await evaluate(socket, `(() => {
         const auth = document.querySelector('#builder-auth');
         auth.value = 'key';

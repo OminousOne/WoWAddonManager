@@ -238,6 +238,21 @@ test('WoWInterface project combines gallery, description, and compatibility from
   assert.equal((await catalog.project('wowinterface', '11', { edition: 'era' })).canInstall, false);
 });
 
+test('Tukui project displays readable descriptions and release notes', async () => {
+  const catalog = newCatalog('', async (url) => {
+    if (url.pathname.endsWith('/changelog/elvui')) {
+      return new Response('### Version 2.0\n* Fixed an issue\n');
+    }
+    return Response.json({
+      name: 'ElvUI', slug: 'elvui', version: '2.0', patch: ['12.1.5'],
+      desc: '## Features\n\n- **Nameplates**\n- **Action bars**',
+    });
+  });
+  const project = await catalog.project('tukui', 'elvui', { edition: 'retail' });
+  assert.equal(project.description, 'Features\n\n• Nameplates\n• Action bars');
+  assert.equal(project.changelog, 'Version 2.0\n• Fixed an issue');
+});
+
 test('CurseForge project converts its full description and changelog to readable text', async () => {
   const screenshot = 'https://media.forgecdn.net/example.png';
   const catalog = newCatalog('fixture-key', async (url) => {

@@ -61,11 +61,15 @@ function renderBuilder(client = builderClient()) {
   $('#builder-account-row').hidden = withKey;
   $('#builder-key-form').hidden = !withKey;
   $('#builder-clear-key').disabled = busy || !available;
-  $('#builder-connect').textContent = provider === 'claude' ? 'Check Claude Code login' : available ? 'Check connection' : 'Connect account';
-  $('#builder-account-hint').textContent = provider === 'claude' ? 'Sign in in Terminal with claude auth login.' : 'Sign in with your ChatGPT account in the browser.';
-  $('#builder-connection').textContent = withKey
-    ? (available ? 'API key saved' : 'Save an API key to generate with ' + builderNames[provider] + '.')
-    : (available ? 'Account connected' : '');
+  $('#builder-connect').textContent = operation === 'connect' ? 'Connecting…'
+    : provider === 'claude' ? 'Check Claude Code login' : available ? 'Check connection' : 'Connect account';
+  $('#builder-cancel-connect').hidden = operation !== 'connect';
+  $('#builder-account-hint').hidden = withKey || available;
+  $('#builder-account-hint').textContent = provider === 'claude' ? 'First, run claude auth login in Terminal.' : 'Sign in with your ChatGPT account in the browser.';
+  const connection = $('#builder-connection');
+  connection.textContent = withKey ? (available ? 'API key saved' : 'API key required')
+    : (available ? 'Account connected' : 'Account required');
+  connection.className = available ? 'badge enabled' : 'badge';
   $('#builder-client').textContent = client?.version ? `Target: ${client.label} ${client.version}`
     : client ? 'Ledger could not detect this client’s version. Rescan a fully installed client.'
       : 'Add a World of Warcraft installation to choose a target version.';
@@ -77,9 +81,11 @@ function renderBuilder(client = builderClient()) {
   setPending($('#builder-generate'), operation === 'generate');
   setPending($('#builder-connect'), operation === 'connect');
   setPending($('#builder-export'), operation === 'export');
-  $('#builder-stop').hidden = !['generate', 'connect'].includes(operation);
+  $('#builder-stop').hidden = operation !== 'generate';
+  $('#builder-request').placeholder = draft ? 'Describe what you want to change in the current draft.' : 'Show a reminder when I enter a raid without food or flask buffs.';
   $('#builder-install').disabled = busy || !compatible || !$('#builder-lua').value.trim();
-  $('#builder-install').title = compatible ? '' : 'Select a matching WoW client or generate a revision for the selected client.';
+  $('#builder-compatibility').textContent = draft && !compatible
+    ? 'To install, select the client this draft targets or generate a revision for the selected client.' : '';
   $('#builder-export').disabled = busy || !$('#builder-lua').value.trim();
   $('#builder-generate').disabled = busy || !available || !client?.version;
   for (const id of ['provider', 'auth', 'connect', 'key', 'save-key', 'title', 'request', 'lua', 'new']) {
@@ -92,7 +98,7 @@ async function runBuilder(operation, status, task) {
   builderState.operation = operation;
   builderStatus(status, '');
   renderBuilder();
-  try { await task(); }
+  try { return await task(); }
   catch (error) { builderStatus(status, error.message); }
   finally {
     builderState.operation = null;
@@ -109,7 +115,7 @@ function draftPayload() {
 for (const field of ['provider', 'auth']) {
   $(`#builder-${field}`).addEventListener('change', () => {
     $('#builder-key').value = '';
-    builderStatus('#builder-status', '');
+    builderStatus('#builder-auth-status', '');
     persistBuilder();
     renderBuilder();
   });
@@ -122,20 +128,21 @@ for (const field of ['title', 'request', 'lua']) {
   });
 }
 
-$('#builder-connect').addEventListener('click', () => runBuilder('connect', '#builder-status', async () => {
+$('#builder-connect').addEventListener('click', () => runBuilder('connect', '#builder-auth-status', async () => {
   const provider = $('#builder-provider').value;
   builderState.accounts.delete(provider);
-  builderStatus('#builder-status', provider === 'codex' ? 'Checking your connection or opening sign-in…' : 'Checking Claude Code login…');
+  builderStatus('#builder-auth-status', provider === 'codex' ? 'Checking your connection or opening sign-in…' : 'Checking Claude Code login…');
   if (await api.builderAccount(provider)) builderState.accounts.add(provider);
-  builderStatus('#builder-status', '');
+  builderStatus('#builder-auth-status', 'Account connected. You can now generate a draft.');
 }));
 
 function saveBuilderKey(value) {
-  return runBuilder('key', '#builder-status', async () => {
+  return runBuilder('key', '#builder-auth-status', async () => {
     const provider = $('#builder-provider').value;
     if (await api.builderKey(provider, value)) builderState.keys.add(provider);
     else builderState.keys.delete(provider);
     $('#builder-key').value = '';
+    builderStatus('#builder-auth-status', value ? 'API key saved.' : 'Saved API key cleared.');
   });
 }
 
@@ -147,7 +154,8 @@ $('#builder-key-form').addEventListener('submit', (event) => {
 $('#builder-clear-key').addEventListener('click', () => saveBuilderKey(''));
 $('#builder-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  runBuilder('generate', '#builder-status', async () => {
+  const initialFocus = document.activeElement;
+  void runBuilder('generate', '#builder-status', async () => {
     builderStatus('#builder-status', 'Waiting for ' + builderNames[$('#builder-provider').value] + '…');
     const result = await api.builderGenerate(state.selection, $('#builder-provider').value, $('#builder-auth').value, readBuilderForm());
     const id = builderState.draft?.id || crypto.randomUUID();
@@ -157,9 +165,16 @@ $('#builder-form').addEventListener('submit', (event) => {
     builderStatus('#builder-status', 'Draft ready for review.');
     builderStatus('#builder-output-status', '');
     persistBuilder();
+    return true;
+  }).then((generated) => {
+    const focus = document.activeElement;
+    if (generated && state.view === 'builder' && (focus === initialFocus || focus === document.body)) {
+      $('#builder-review-title').focus();
+    }
   });
 });
 $('#builder-stop').addEventListener('click', () => api.builderStop().catch((error) => builderStatus('#builder-status', error.message)));
+$('#builder-cancel-connect').addEventListener('click', () => api.builderStop().catch((error) => builderStatus('#builder-auth-status', error.message)));
 $('#builder-new').addEventListener('click', () => {
   if ($('#builder-title').value || $('#builder-request').value || builderState.draft) {
     if (!window.confirm('Start a new draft? This clears the current draft from the builder.')) return;
@@ -171,6 +186,7 @@ $('#builder-new').addEventListener('click', () => {
   builderStatus('#builder-output-status', '');
   persistBuilder();
   renderBuilder();
+  $('#builder-title').focus();
 });
 $('#builder-export').addEventListener('click', () => runBuilder('export', '#builder-output-status', async () => {
   if (await api.builderExport(draftPayload())) builderStatus('#builder-output-status', 'Addon ZIP exported.');
@@ -183,11 +199,11 @@ $('#builder-install').addEventListener('click', () => {
       builderStatus('#builder-output-status', `Installed for ${client.label}. Open My AddOns to see it.`);
       await readAddons();
     }
-  }, $('#builder-install'));
+  }, { trigger: $('#builder-install'), progress: 'Installing custom addon…' });
 });
 
 restoreBuilder();
 api.builderKeys().then((keys) => {
   builderState.keys = new Set(keys);
   renderBuilder();
-}).catch((error) => builderStatus('#builder-status', error.message));
+}).catch((error) => builderStatus('#builder-auth-status', error.message));
