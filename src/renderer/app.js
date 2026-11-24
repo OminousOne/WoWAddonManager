@@ -36,7 +36,7 @@ function notify(message = '') {
 
 function empty(title, description, action) {
   const box = el('div', null, 'empty');
-  const mark = el('span', '◈', 'empty-mark');
+  const mark = el('span', null, 'empty-mark');
   mark.setAttribute('aria-hidden', 'true');
   box.append(mark, el('h2', title), el('p', description));
   if (action) box.append(action);
@@ -106,7 +106,9 @@ function render() {
   if (state.view === 'catalog') return renderCatalog(selected);
   if (state.view === 'builder') return renderBuilder(selected);
   if (state.view === 'sources') {
-    $('#key-status').textContent = state.curseforge ? 'Enabled' : 'Key required';
+    const keyStatus = $('#key-status');
+    keyStatus.textContent = state.curseforge ? 'Enabled' : 'Key required';
+    keyStatus.className = state.curseforge ? 'badge enabled' : 'badge attention';
     $('#save-key').disabled = state.busy;
     $('#clear-key').disabled = state.busy || !state.curseforge;
     return;
