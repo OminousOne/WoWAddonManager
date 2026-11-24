@@ -28,6 +28,43 @@ test('detects individual editions, deduplicates roots, and reads the applicable 
   assert.deepEqual(await scanAddons(installations[1]), []);
 });
 
+test('discovers client and Interface junctions and ignores dangling Interface links', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const clientFolder = path.join(root, 'SharedRetail');
+  const interfaceFolder = path.join(root, 'SharedInterface');
+  const addon = path.join(interfaceFolder, 'AddOns', 'Example');
+  const retail = path.join(root, '_retail_');
+  const classic = path.join(root, '_classic_era_');
+  await fs.mkdir(addon, { recursive: true });
+  await fs.mkdir(clientFolder);
+  await fs.mkdir(classic);
+  await fs.symlink(clientFolder, retail, 'junction');
+  await fs.symlink(interfaceFolder, path.join(clientFolder, 'Interface'), 'junction');
+  await fs.symlink(path.join(root, 'Missing'), path.join(classic, 'Interface'), 'junction');
+  await fs.writeFile(path.join(addon, 'Example.toc'), '## Title: Linked addon');
+
+  const [installation] = await discoverInstallations([retail]);
+  assert.equal(installation.edition, 'retail');
+  assert.equal(installation.directory, await fs.realpath(clientFolder));
+  assert.deepEqual(await discoverInstallations([root, retail]), [installation]);
+  assert.equal((await scanAddons(installation))[0].title, 'Linked addon');
+});
+
+test('detects the game track from build metadata inside a standalone client', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const clientFolder = path.join(root, '_classic_beta_');
+  await fs.mkdir(clientFolder);
+  await fs.writeFile(path.join(clientFolder, '.build.info'),
+    'Active!DEC:1|Version!STRING:0|Product!STRING:0\n1|1.60.1.5|wowf');
+  await fs.writeFile(path.join(clientFolder, '.flavor.info'), 'Product Flavor!STRING:0\r\nWoWF\r\n');
+
+  const [installation] = await discoverInstallations([clientFolder]);
+  assert.equal(installation.edition, 'forever');
+  assert.equal(installation.version, '1.60.1.5');
+});
+
 test('prefers the client TOC, then the game family TOC, then the generic TOC', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
