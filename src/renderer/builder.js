@@ -154,6 +154,7 @@ $('#builder-key-form').addEventListener('submit', (event) => {
 $('#builder-clear-key').addEventListener('click', () => saveBuilderKey(''));
 $('#builder-form').addEventListener('submit', (event) => {
   event.preventDefault();
+  const initialFocus = document.activeElement;
   void runBuilder('generate', '#builder-status', async () => {
     builderStatus('#builder-status', 'Waiting for ' + builderNames[$('#builder-provider').value] + '…');
     const result = await api.builderGenerate(state.selection, $('#builder-provider').value, $('#builder-auth').value, readBuilderForm());
@@ -166,7 +167,8 @@ $('#builder-form').addEventListener('submit', (event) => {
     persistBuilder();
     return true;
   }).then((generated) => {
-    if (generated && state.view === 'builder' && document.activeElement === document.body) {
+    const focus = document.activeElement;
+    if (generated && state.view === 'builder' && (focus === initialFocus || focus === document.body)) {
       $('#builder-review-title').focus();
     }
   });
