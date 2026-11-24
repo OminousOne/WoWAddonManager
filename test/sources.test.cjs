@@ -240,18 +240,33 @@ test('WoWInterface project combines gallery, description, and compatibility from
 
 test('CurseForge project converts its full description and changelog to readable text', async () => {
   const screenshot = 'https://media.forgecdn.net/example.png';
+  const latest = { id: 80, isAvailable: true, displayName: '1.2', releaseType: 1, gameVersions: ['12.1.5'],
+    downloadUrl: 'https://edge.forgecdn.net/files/example.zip', fileDate: '2026-11-24' };
+  const pages = [];
   const catalog = newCatalog('fixture-key', async (url) => {
     if (url.pathname.endsWith('/description')) return Response.json({ data: '<p>Full description</p><script>ignored()</script>' });
-    if (url.pathname.endsWith('/changelog')) return Response.json({ data: '<p>Release notes</p>' });
+    if (url.pathname.endsWith('/files/80/changelog')) return Response.json({ data: '<p>Release notes</p>' });
+    if (url.pathname.endsWith('/files')) {
+      const index = Number(url.searchParams.get('index'));
+      pages.push(index);
+      return Response.json({
+        data: index === 0 ? [{ ...latest, id: 81, gameVersions: ['1.15.9'] }] : [latest],
+        pagination: { totalCount: 2 },
+      });
+    }
     return Response.json({ data: { id: 77, gameId: 432, name: 'Example',
       screenshots: [{ url: screenshot }],
-      latestFiles: [{ id: 80, isAvailable: true, displayName: '1.2', releaseType: 1, gameVersions: ['12.1.5'] }],
+      latestFiles: [{ ...latest, id: 79, displayName: '1.1', fileDate: '2026-11-20' }],
     } });
   });
-  const project = await catalog.project('curseforge', '77', { edition: 'retail' });
+  const client = { edition: 'retail' };
+  const project = await catalog.project('curseforge', '77', client);
   assert.equal(project.description, 'Full description');
   assert.equal(project.changelog, 'Release notes');
-  assert.equal(project.version, '1.2');
+  assert.equal(project.version, (await catalog.release('curseforge', '77', client)).version);
+  assert.equal(project.version, latest.displayName);
+  assert.equal(project.canInstall, true);
+  assert.deepEqual(pages, [0, 1, 0, 1]);
   assert.deepEqual(project.screenshots, [screenshot]);
 });
 
