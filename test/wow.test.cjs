@@ -12,13 +12,10 @@ test('detects individual editions, deduplicates roots, and reads the applicable 
   const classic = path.join(root, '_classic_beta_');
   const addon = path.join(retail, 'Interface', 'AddOns', 'Example');
   await fs.mkdir(addon, { recursive: true });
-  const otherTrack = path.join(path.dirname(addon), 'OtherTrack');
-  await fs.mkdir(otherTrack);
-  await fs.writeFile(path.join(otherTrack, 'OtherTrack_Vanilla.toc'), '## Title: Era Only\n');
   await fs.mkdir(classic);
   await fs.writeFile(path.join(root, '.build.info'),
-    'Active!DEC:1|Version!STRING:0|Product!STRING:0\n0|11.0.0.3|wow\n1|12.1.5.8|wow\n1|1.60.1.5|wow_classic_beta');
-  await fs.writeFile(path.join(classic, '.flavor.info'), 'wow_classic_beta');
+    'Active!DEC:1|Version!STRING:0|Product!STRING:0\n0|11.0.0.3|wow\n1|12.1.5.8|wow\n1|1.60.1.5|wowf');
+  await fs.writeFile(path.join(classic, '.flavor.info'), 'Product Flavor!STRING:0\r\nwowf\r\n');
   await fs.writeFile(path.join(addon, 'Example.toc'), '## Title: Generic\n');
   await fs.writeFile(path.join(addon, 'Example_Mainline.toc'),
     '\uFEFF## Title: |cffff0000Example|r\r\n## Version: 1.2\r\n## Author: Tester');
