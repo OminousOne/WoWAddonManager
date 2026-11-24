@@ -4,7 +4,7 @@ const edition = $('#edition');
 const filter = $('#filter');
 const state = {
   installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
-  updateResults: new Map(), checking: false, checkId: 0, project: null, catalogScroll: 0,
+  updateResults: new Map(), checking: false, checkId: 0, project: null, catalogScroll: 0, libraryError: false,
 };
 const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', wowup: 'WowUp Hub', local: 'ZIP import' };
 const pages = {
@@ -111,11 +111,11 @@ function render() {
   }
 
   const results = $('#results');
-  filter.disabled = !selected;
+  filter.disabled = !selected || state.libraryError;
   const query = filter.value.trim().toLowerCase();
   const group = $('#library-filter').value;
   const available = state.addons.filter((addon) => updateFor(addon)?.status === 'available' && !addon.pinned);
-  $('#library-filter').disabled = !selected;
+  $('#library-filter').disabled = !selected || state.libraryError;
   $('#update-all').hidden = !available.length;
   $('#update-all').disabled = state.busy;
   $('#update-all').textContent = `Update all (${available.length})`;
@@ -126,7 +126,7 @@ function render() {
     return [addon.title, addon.folder, addon.author, ...(addon.folders || [])]
       .some((value) => value?.toLowerCase().includes(query));
   });
-  $('#count').textContent = selected ? (query || group !== 'all' ? `${matched.length} of ${state.addons.length} addons`
+  $('#count').textContent = selected && !state.libraryError ? (query || group !== 'all' ? `${matched.length} of ${state.addons.length} addons`
     : `${state.addons.length} ${state.addons.length === 1 ? 'addon' : 'addons'}`) : '';
   if (!selected) {
     const action = button('Choose WoW folder', addFolder, true);
@@ -136,6 +136,10 @@ function render() {
       'Choose the World of Warcraft folder or an individual client folder to see its addons.',
       action,
     ));
+    return;
+  }
+  if (state.libraryError) {
+    results.replaceChildren(empty('Could not read this library', 'Rescan the library to try again.'));
     return;
   }
   if (!matched.length) {
@@ -490,26 +494,41 @@ async function run(operation) {
 }
 
 async function readAddons() {
-  state.addons = state.selection ? await api.addons(state.selection) : [];
+  try {
+    state.addons = state.selection ? await api.addons(state.selection) : [];
+    state.libraryError = false;
+  } catch (error) {
+    state.addons = [];
+    state.libraryError = true;
+    cancelCheck();
+    throw error;
+  }
 }
 
-async function setInstallations(found) {
-  state.installations = found;
-  const preferred = state.selection || localStorage.getItem('edition');
-  const next = found.find(({ id }) => id === preferred)?.id || found[0]?.id || null;
+async function selectInstallation(next) {
+  cancelCheck();
   if (state.selection !== next) {
-    cancelCheck();
     state.addons = [];
+    state.libraryError = false;
+    filter.value = '';
+    $('#library-filter').value = 'all';
     if (state.view === 'project') {
-      state.view = 'catalog';
+      state.view = state.project.returnView;
       state.project = null;
     }
   }
   state.selection = next;
   state.catalog = null;
   if (state.selection) localStorage.setItem('edition', state.selection);
+  render();
   await readAddons();
   if (state.view === 'catalog') await readCatalog();
+}
+
+function setInstallations(found) {
+  state.installations = found;
+  const preferred = state.selection || localStorage.getItem('edition');
+  return selectInstallation(found.find(({ id }) => id === preferred)?.id || found[0]?.id || null);
 }
 
 function addFolder() {
@@ -521,20 +540,7 @@ function addFolder() {
 
 edition.addEventListener('change', () => {
   const selected = edition.value;
-  run(async () => {
-    cancelCheck();
-    state.selection = selected;
-    localStorage.setItem('edition', selected);
-    state.addons = [];
-    filter.value = '';
-    state.catalog = null;
-    if (state.view === 'project') {
-      state.view = 'catalog';
-      state.project = null;
-    }
-    await readAddons();
-    if (state.view === 'catalog') await readCatalog();
-  }).then(() => checkUpdates());
+  return run(() => selectInstallation(selected)).then(() => checkUpdates());
 });
 filter.addEventListener('input', render);
 $('#refresh').addEventListener('click', () => run(async () => setInstallations(await api.editions())).then(() => checkUpdates()));
