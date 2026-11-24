@@ -3,7 +3,7 @@ const api = window.ledger;
 const edition = $('#edition');
 const filter = $('#filter');
 const state = {
-  installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
+  installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, sourceSettings: {},
   updateResults: new Map(), checking: false, checkId: 0, project: null, catalogPending: false, libraryError: false,
 };
 const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', wowup: 'WowUp Hub', local: 'ZIP import' };
@@ -106,11 +106,13 @@ function render() {
   if (state.view === 'catalog') return renderCatalog(selected);
   if (state.view === 'builder') return renderBuilder(selected);
   if (state.view === 'sources') {
+    const { curseforge, curseforgeKeySource, curseforgeKeySaved } = state.sourceSettings;
     const keyStatus = $('#key-status');
-    keyStatus.textContent = state.curseforge ? 'Enabled' : 'Key required';
-    keyStatus.className = state.curseforge ? 'badge enabled' : 'badge attention';
+    keyStatus.textContent = curseforgeKeySource === 'environment' ? 'Environment key'
+      : curseforgeKeySource === 'saved' ? 'Saved key' : curseforgeKeySaved ? 'Saved key unavailable' : 'Key required';
+    keyStatus.className = curseforge ? 'badge enabled' : 'badge attention';
     $('#save-key').disabled = state.busy;
-    $('#clear-key').disabled = state.busy || !state.curseforge;
+    $('#clear-key').disabled = state.busy || !curseforgeKeySaved;
     return;
   }
 
@@ -317,7 +319,7 @@ function renderCatalog(client) {
   }
   $('#query').disabled = !client || state.busy;
   $('#source').disabled = !client || state.busy;
-  $('#source').querySelector('[value=curseforge]').disabled = !state.curseforge;
+  $('#source').querySelector('[value=curseforge]').disabled = !state.sourceSettings.curseforge;
   $('#search-button').disabled = !client || state.busy;
   if (!client) {
     const choose = button('Choose WoW folder', addFolder, true);
@@ -564,6 +566,20 @@ function addFolder() {
   }).then(() => checkUpdates());
 }
 
+function saveCurseForgeKey(key) {
+  return run(async () => {
+    state.sourceSettings = await api.setCurseForgeKey(key);
+    $('#api-key').value = '';
+    if (!state.sourceSettings.curseforge) $('#source').value = 'all';
+    state.catalog = null;
+    cancelCheck();
+    void checkUpdates();
+    if (key) notify('CurseForge key saved.');
+    else if (state.sourceSettings.curseforge) notify('Saved key cleared. CurseForge is using the environment key.');
+    else notify('Saved CurseForge key cleared.');
+  });
+}
+
 edition.addEventListener('change', () => {
   const selected = edition.value;
   return run(() => selectInstallation(selected)).then(() => checkUpdates());
@@ -593,23 +609,12 @@ $('#catalog-form').addEventListener('submit', (event) => {
 $('#source').addEventListener('change', () => run(readCatalog));
 $('#source-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  if (!$('#api-key').value.trim()) return;
-  run(async () => {
-    ({ curseforge: state.curseforge } = await api.setCurseForgeKey($('#api-key').value));
-    $('#api-key').value = '';
-    state.catalog = null;
-    notify('CurseForge key saved.');
-  });
+  const key = $('#api-key').value.trim();
+  if (key) return saveCurseForgeKey(key);
 });
-$('#clear-key').addEventListener('click', () => run(async () => {
-  ({ curseforge: state.curseforge } = await api.setCurseForgeKey(''));
-  $('#api-key').value = '';
-  $('#source').value = 'all';
-  state.catalog = null;
-  notify('Saved CurseForge key cleared.');
-}));
+$('#clear-key').addEventListener('click', () => saveCurseForgeKey(''));
 
 run(async () => {
-  ({ curseforge: state.curseforge } = await api.sources());
+  state.sourceSettings = await api.sources();
   await setInstallations(await api.editions());
 }).then(() => checkUpdates());

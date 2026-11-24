@@ -14,9 +14,19 @@ const page = path.join(__dirname, '../renderer/index.html');
 const pageUrl = pathToFileURL(page).href;
 let store;
 let catalog = newCatalog();
+let savedKeyActive = false;
 
 function setCatalog(key) {
-  catalog = newCatalog(key || process.env.CURSEFORGE_API_KEY?.trim());
+  catalog = newCatalog(key || undefined);
+  savedKeyActive = Boolean(key);
+}
+
+function sourceSettings() {
+  return {
+    curseforge: catalog.hasCurseForge,
+    curseforgeKeySource: savedKeyActive ? 'saved' : catalog.hasCurseForge ? 'environment' : null,
+    curseforgeKeySaved: Boolean(store.read().curseforgeKey),
+  };
 }
 
 function findInstallations() {
@@ -154,7 +164,7 @@ if (!app.requestSingleInstanceLock()) {
       try { setCatalog(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))); }
       catch { setCatalog(); }
     }
-    handle('sources:list', () => ({ curseforge: catalog.hasCurseForge }));
+    handle('sources:list', sourceSettings);
     handle('sources:curseforge', async (_event, value) => {
       if (typeof value !== 'string' || value.length > 512 || /[^!-~]/.test(value.trim())) {
         throw new Error('Enter a valid CurseForge API key.');
@@ -168,7 +178,7 @@ if (!app.requestSingleInstanceLock()) {
         else delete state.curseforgeKey;
       });
       setCatalog(key);
-      return { curseforge: catalog.hasCurseForge };
+      return sourceSettings();
     });
     handle('catalog:search', async (_event, id, query, source) => {
       if (typeof query !== 'string' || (source !== 'all' && !Object.hasOwn(sources, source))) {

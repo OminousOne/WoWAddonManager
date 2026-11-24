@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { newCatalog } = require('../src/main/sources.cjs');
 const { defaultRoots, discoverInstallations, scanAddons } = require('../src/main/wow.cjs');
 
 test('detects individual editions, deduplicates roots, and reads the applicable TOC', async (t) => {
@@ -26,6 +27,71 @@ test('detects individual editions, deduplicates roots, and reads the applicable 
     { folder: 'Example', title: 'Example', version: '1.2', notes: '', author: 'Tester' },
   ]);
   assert.deepEqual(await scanAddons(installations[1]), []);
+});
+
+test('discovers client and Interface junctions and ignores dangling Interface links', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const clientFolder = path.join(root, 'SharedRetail');
+  const interfaceFolder = path.join(root, 'SharedInterface');
+  const addon = path.join(interfaceFolder, 'AddOns', 'Example');
+  const retail = path.join(root, '_retail_');
+  const classic = path.join(root, '_classic_era_');
+  await fs.mkdir(addon, { recursive: true });
+  await fs.mkdir(clientFolder);
+  await fs.mkdir(classic);
+  await fs.symlink(clientFolder, retail, 'junction');
+  await fs.symlink(interfaceFolder, path.join(clientFolder, 'Interface'), 'junction');
+  await fs.symlink(path.join(root, 'Missing'), path.join(classic, 'Interface'), 'junction');
+  await fs.writeFile(path.join(addon, 'Example.toc'), '## Title: Linked addon');
+
+  const [installation] = await discoverInstallations([retail]);
+  assert.equal(installation.edition, 'retail');
+  assert.equal(installation.directory, await fs.realpath(clientFolder));
+  assert.deepEqual(await discoverInstallations([root, retail]), [installation]);
+  assert.equal((await scanAddons(installation))[0].title, 'Linked addon');
+});
+
+test('uses build metadata beside a junction target for TOC and release compatibility', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const links = path.join(root, 'Links');
+  const game = path.join(root, 'WoW');
+  const client = path.join(game, '_classic_');
+  const junction = path.join(links, '_classic_');
+  const addon = path.join(client, 'Interface', 'AddOns', 'Example');
+  await fs.mkdir(links);
+  await fs.mkdir(addon, { recursive: true });
+  await fs.symlink(client, junction, 'junction');
+  const header = 'Active!DEC:1|Version!STRING:0|Product!STRING:0\n';
+  await fs.writeFile(path.join(links, '.build.info'), `${header}1|12.1.5.8|wow\n`);
+  await fs.writeFile(path.join(client, '.build.info'), `${header}1|1.15.8.1|wow_classic_era\n`);
+  await fs.writeFile(path.join(game, '.build.info'), `${header}1|5.5.4.1|wow_classic\n`);
+  await fs.writeFile(path.join(addon, 'Example_Mists.toc'), '## Title: Mists addon\n');
+
+  const [installation] = await discoverInstallations([junction]);
+  assert.equal(installation.version, '5.5.4.1');
+  assert.deepEqual((await scanAddons(installation)).map(({ title }) => title), ['Mists addon']);
+
+  const catalog = newCatalog('', async () => Response.json({
+    name: 'ElvUI', patch: ['4.4.2'], version: '1.0', last_update: '2026-01-01',
+    url: 'https://api.tukui.org/addons/elvui.zip',
+  }));
+  await assert.rejects(catalog.release('tukui', 'elvui', installation), /No compatible release/);
+});
+
+test('detects the game track from build metadata inside a standalone client', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ledger-wow-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const clientFolder = path.join(root, '_classic_beta_');
+  await fs.mkdir(clientFolder);
+  await fs.writeFile(path.join(clientFolder, '.build.info'),
+    'Active!DEC:1|Version!STRING:0|Product!STRING:0\n1|1.60.1.5|wowf');
+  await fs.writeFile(path.join(clientFolder, '.flavor.info'), 'Product Flavor!STRING:0\r\nWoWF\r\n');
+
+  const [installation] = await discoverInstallations([clientFolder]);
+  assert.equal(installation.edition, 'forever');
+  assert.equal(installation.version, '1.60.1.5');
 });
 
 test('prefers the client TOC, then the game family TOC, then the generic TOC', async (t) => {
