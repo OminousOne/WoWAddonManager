@@ -44,7 +44,8 @@ function libraryPaths(client) {
 }
 
 async function recover(paths, committed) {
-  if (!await realDirectory(paths.base, false) || !await realDirectory(paths.work, false)) return;
+  // A read-only scan can follow Interface when there is no transaction to recover.
+  if (!await realDirectory(paths.work, false) || !await realDirectory(paths.base, false)) return;
   const pending = await fs.readFile(paths.journal, 'utf8').then(JSON.parse).catch((error) => {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -98,10 +99,24 @@ function createLibrary(store) {
     return serial(async () => {
       const paths = libraryPaths(client);
       await recover(paths, committed(client));
-      const previous = packages(client)[key];
+      const installed = packages(client);
+      const previous = installed[key];
       if (Boolean(previous) !== existing) {
         throw new Error(existing ? 'This managed addon is no longer installed.' : 'This addon is already installed.');
       }
+      const normalize = (name) => name.normalize('NFC').toLowerCase();
+      const otherClaims = new Set(Object.entries(installed)
+        .filter(([owner]) => owner !== key)
+        .flatMap(([, { folders }]) => folders.map(normalize)));
+      function assertUnclaimed(folders) {
+        for (const folder of folders) {
+          if (otherClaims.has(normalize(folder))) {
+            throw new Error(`Folder “${folder}” is already claimed by another managed addon.`);
+          }
+        }
+      }
+      const owned = new Set(previous?.folders || []);
+      assertUnclaimed(owned);
       await realDirectory(paths.base, true);
       await realDirectory(paths.live, true);
       await fs.mkdir(paths.work, { mode: 0o700 });
@@ -109,16 +124,14 @@ function createLibrary(store) {
       try {
         const next = await prepare(paths, previous);
         const incoming = next?.folders || [];
-        const owned = new Set(previous?.folders || []);
-        const normalize = (name) => name.normalize('NFC').toLowerCase();
+        assertUnclaimed(incoming);
         const live = await fs.readdir(paths.live, { withFileTypes: true });
         const byName = new Map(live.map((entry) => [entry.name, entry]));
         const incomingNames = new Set(incoming.map(normalize));
         const collisions = live.filter((entry) => incomingNames.has(normalize(entry.name))
           && (!owned.has(entry.name) || !entry.isDirectory()));
         if (collisions.length) {
-          const reserved = new Set(Object.values(packages(client)).flatMap(({ folders }) => folders.map(normalize)));
-          if (!authorizeReplace || collisions.some((entry) => !entry.isDirectory() || reserved.has(normalize(entry.name)))) {
+          if (!authorizeReplace || collisions.some((entry) => !entry.isDirectory())) {
             throw new Error(`Folder “${collisions[0].name}” already exists. AddOn Ledger protects folders owned by other addons or installed manually.`);
           }
           const local = new Set((await scanAddons(client)).map(({ folder }) => folder));

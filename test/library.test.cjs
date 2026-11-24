@@ -31,6 +31,20 @@ function source(files, version = '1.0') {
   };
 }
 
+test('lists addons through a symlinked Interface folder without a transaction workspace', async (t) => {
+  const { client, library, work } = await fixture(t);
+  const interfaceTarget = path.join(client.directory, 'SharedInterface');
+  const addon = path.join(interfaceTarget, 'AddOns', 'Local');
+  await fs.mkdir(addon, { recursive: true });
+  await fs.writeFile(path.join(addon, 'Local.toc'), '## Title: Local');
+  await fs.symlink(interfaceTarget, path.join(client.directory, 'Interface'), 'junction');
+
+  assert.deepEqual((await library.list(client)).map(({ folder }) => folder), ['Local']);
+  await assert.rejects(library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Alpha' }),
+    'tukui', 'example'), /not a regular directory/);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
+
 test('installs grouped ZIP folders and preserves unrelated addons', async (t) => {
   const { client, library, live, work } = await fixture(t);
   await fs.mkdir(path.join(live, 'Local'), { recursive: true });
@@ -140,5 +154,162 @@ test('can take over manual addons with confirmation and protects other managed p
   assert.equal((await library.list(client))[0].source, 'tukui');
   await assert.rejects(library.install(client, next, 'tukui', 'other', 'install', async () => {
     assert.fail('Other managed addons should never allow replacement.');
-  }), /already exists/);
+  }), /already claimed by another managed addon/);
+});
+
+async function assertAddonFiles(directory, files) {
+  for (const [name, contents] of Object.entries(files)) {
+    assert.equal(await fs.readFile(path.join(directory, name), 'utf8'), contents, name);
+  }
+}
+
+async function manualTakeoverFixture(t) {
+  const setup = await fixture(t);
+  const { client, library, live, store } = setup;
+  const archive = path.join(client.directory, 'Keep.zip');
+  await source({ 'Keep/Keep.toc': '## Title: Keep' }).download(null, archive);
+  await library.importZip(client, archive);
+  assert.ok(store.read().transactions[client.id]);
+  const originals = {
+    'alpha/alpha.toc': '## Title: Manual Alpha',
+    'alpha/Local.lua': '-- Alpha local edits',
+    'Beta/Beta.toc': '## Title: Manual Beta',
+    'Beta/Local.lua': '-- Beta local edits',
+  };
+  await fs.mkdir(path.join(live, 'alpha'));
+  await fs.mkdir(path.join(live, 'Beta'));
+  for (const [name, contents] of Object.entries(originals)) {
+    await fs.writeFile(path.join(live, name), contents);
+  }
+  return {
+    ...setup,
+    originals,
+    replacements: {
+      'Added/Added.toc': '## Title: Added by catalog',
+      'Alpha/Alpha.toc': '## Title: Catalog Alpha',
+      'Beta/Beta.toc': '## Title: Catalog Beta',
+    },
+    data: path.join(client.directory, 'data'),
+    before: structuredClone(store.read()),
+    addons: await library.list(client),
+  };
+}
+
+async function assertManualTakeoverRestored({ live, work, originals, data, before }, store) {
+  assert.deepEqual((await fs.readdir(live)).sort(), ['Beta', 'Keep', 'alpha']);
+  await assertAddonFiles(live, originals);
+  assert.deepEqual(store.read(), before);
+  assert.deepEqual((await openStore(data)).read(), before);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+}
+
+test('rolls back a confirmed manual takeover when the store commit fails', async (t) => {
+  const setup = await manualTakeoverFixture(t);
+  const { client, library, live, work, store, data, originals, replacements, addons } = setup;
+  const commitError = new Error('Simulated store commit failure');
+  const rename = fs.rename;
+  t.mock.method(fs, 'rename', async (from, to) => {
+    if (to !== path.join(data, 'library.json')) return rename(from, to);
+    assert.deepEqual((await fs.readdir(live)).sort(), ['Added', 'Alpha', 'Beta', 'Keep']);
+    await assertAddonFiles(live, replacements);
+    await assertAddonFiles(path.join(work, 'backup'), originals);
+    throw commitError;
+  });
+  const confirm = t.mock.fn(async (_addon, folders) => {
+    assert.deepEqual([...folders].sort(), ['Beta', 'alpha']);
+    return true;
+  });
+
+  await assert.rejects(library.install(client, source(replacements), 'tukui', 'example', 'install', confirm),
+    (error) => error === commitError);
+  assert.equal(confirm.mock.callCount(), 1);
+  await assertManualTakeoverRestored(setup, store);
+  for (let scan = 0; scan < 2; scan++) {
+    assert.deepEqual(await library.list(client), addons);
+    await assertManualTakeoverRestored(setup, store);
+  }
+});
+
+test('recovers a confirmed manual takeover interrupted during incoming folder moves', async (t) => {
+  const setup = await manualTakeoverFixture(t);
+  const { client, live, work, data, replacements, addons } = setup;
+  const stage = path.join(work, 'stage');
+  const backup = path.join(work, 'backup');
+  await fs.mkdir(backup, { recursive: true });
+  for (const [name, contents] of Object.entries(replacements)) {
+    const file = path.join(stage, name);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, contents);
+  }
+  await fs.writeFile(path.join(work, 'transaction.json'), JSON.stringify({
+    token: 'uncommitted-takeover', incoming: ['Added', 'Alpha', 'Beta'], outgoing: ['Beta', 'alpha'],
+  }));
+  await fs.rename(path.join(live, 'Beta'), path.join(backup, 'Beta'));
+  await fs.rename(path.join(live, 'alpha'), path.join(backup, 'alpha'));
+  await fs.rename(path.join(stage, 'Added'), path.join(live, 'Added'));
+  await fs.rename(path.join(stage, 'Alpha'), path.join(live, 'Alpha'));
+
+  const restartedStore = await openStore(data);
+  const restartedLibrary = createLibrary(restartedStore);
+  for (let scan = 0; scan < 2; scan++) {
+    assert.deepEqual(await restartedLibrary.list(client), addons);
+    await assertManualTakeoverRestored(setup, restartedStore);
+  }
+});
+
+test('rejects manual migration when an incoming folder is claimed by a damaged package', async (t) => {
+  const { client, library, live, store, work } = await fixture(t);
+  await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
+  await fs.rm(path.join(live, 'Alpha'), { recursive: true });
+  await fs.mkdir(path.join(live, 'Beta'));
+  const manualToc = path.join(live, 'Beta', 'Beta.toc');
+  await fs.writeFile(manualToc, '## Title: Manual');
+  const before = structuredClone(store.read().packages);
+
+  await assert.rejects(library.install(client, source({
+    'alpha/alpha.toc': '## Title: Catalog Alpha',
+    'Beta/Beta.toc': '## Title: Catalog Beta',
+  }), 'tukui', 'other', 'install', async () => {
+    assert.fail('A conflicting folder claim should block migration before confirmation.');
+  }), /Folder “alpha” is already claimed by another managed addon/);
+
+  assert.deepEqual(await fs.readdir(live), ['Beta']);
+  assert.equal(await fs.readFile(manualToc, 'utf8'), '## Title: Manual');
+  assert.deepEqual(store.read().packages, before);
+  await assert.rejects(fs.lstat(work), { code: 'ENOENT' });
+});
+
+test('rejects importing a folder still claimed by a damaged package', async (t) => {
+  const { client, library, live, store } = await fixture(t);
+  await library.install(client, source({ 'Alpha/Alpha.toc': '## Title: Managed' }), 'tukui', 'example');
+  await fs.rm(path.join(live, 'Alpha'), { recursive: true });
+  const archive = path.join(client.directory, 'Local.zip');
+  await source({ 'alpha/alpha.toc': '## Title: Local' }).download(null, archive);
+
+  await assert.rejects(library.importZip(client, archive), /already claimed by another managed addon/);
+  assert.deepEqual(Object.keys(store.read().packages[client.id]), ['tukui:example']);
+  assert.deepEqual(await fs.readdir(live), []);
+  assert.equal((await library.list(client))[0].damaged, true);
+
+  await library.remove(client, 'tukui:example');
+  await library.importZip(client, archive);
+  assert.equal((await library.list(client))[0].title, 'Local');
+});
+
+test('rejects destructive operations on folders with conflicting recorded owners', async (t) => {
+  const { client, library, live, store } = await fixture(t);
+  const key = 'tukui:example';
+  const original = '## Title: Installed';
+  await library.install(client, source({ 'Alpha/Alpha.toc': original }), 'tukui', 'example');
+  await store.write((state) => {
+    state.packages[client.id]['local:legacy'] = { source: 'local', id: 'legacy', folders: ['alpha'] };
+  });
+  const before = structuredClone(store.read().packages);
+  const conflict = /already claimed by another managed addon/;
+
+  await assert.rejects(library.remove(client, key), conflict);
+  await assert.rejects(library.refresh(client, {}, key, 'update'), conflict);
+  await assert.rejects(library.refresh(client, {}, key, 'repair'), conflict);
+  assert.equal(await fs.readFile(path.join(live, 'Alpha', 'Alpha.toc'), 'utf8'), original);
+  assert.deepEqual(store.read().packages, before);
 });
