@@ -10,6 +10,7 @@ const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 
 const pages = {
   library: ['My AddOns', 'Addons installed for the selected WoW client.'],
   catalog: ['Discover', 'Search for addons and check which releases support the selected WoW client.'],
+  builder: ['Custom Addon Builder · Beta', 'Describe a World of Warcraft addon and draft it with Claude or Codex.'],
   sources: ['Sources', 'Manage the catalogs available in Discover.'],
 };
 
@@ -103,6 +104,7 @@ function render() {
 
   if (state.view === 'project') return renderProject();
   if (state.view === 'catalog') return renderCatalog(selected);
+  if (state.view === 'builder') return renderBuilder(selected);
   if (state.view === 'sources') {
     $('#key-status').textContent = state.curseforge ? 'Enabled' : 'Key required';
     $('#save-key').disabled = state.busy;
@@ -153,7 +155,7 @@ function render() {
   }
   const rows = matched.map((addon) => {
     const title = el('strong', addon.title || addon.folder);
-    title.append(el('small', addon.author || (addon.source ? sourceNames[addon.source] : addon.folder)));
+    title.append(el('small', addon.custom ? 'Custom addon' : addon.author || (addon.source ? sourceNames[addon.source] : addon.folder)));
     const status = updateFor(addon);
     const version = el('span', addon.version || '—');
     if (status?.status === 'available') version.append(el('small', status.version, 'warning'));
@@ -248,7 +250,7 @@ function showAddon(addon) {
   const dialog = $('#addon-dialog');
   const update = updateFor(addon);
   $('#addon-dialog-title').textContent = addon.title || addon.folder;
-  const details = [sourceNames[addon.source] || 'Manually installed', addon.version, addon.author].filter(Boolean);
+  const details = [addon.custom ? 'Custom addon' : sourceNames[addon.source] || 'Manually installed', addon.version, addon.author].filter(Boolean);
   if (addon.notes) details.push(addon.notes);
   if (update?.reason) details.push(update.reason);
   if (addon.damaged) details.push('One or more managed addon folders are missing.');

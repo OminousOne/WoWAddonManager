@@ -60,6 +60,8 @@ async function smoke() {
   try {
     await fs.mkdir(userData);
     await fs.writeFile(path.join(userData, 'library.json'), JSON.stringify({ roots: [game], packages: {} }));
+    await fs.mkdir(game);
+    await fs.writeFile(path.join(game, '.build.info'), 'Product|Version\nwow|12.1.5.76543\nwow_anniversary|2.5.5.67890\n');
     for (const [edition, addon] of [['_retail_', 'RetailFixture'], ['_anniversary_', 'ClassicFixture']]) {
       const directory = path.join(game, edition, 'Interface', 'AddOns', addon);
       await fs.mkdir(directory, { recursive: true });
@@ -121,7 +123,23 @@ async function smoke() {
         return [title, document.activeElement === trigger];
       })()`);
       assert.deepEqual(details, ['ClassicFixture', true]);
-      console.log('Packaged UI switched clients and passed compact layout and keyboard focus checks.');
+      await evaluate(socket, "document.querySelector('#builder-tab').click()");
+      const builder = await evaluate(socket, `[
+        document.querySelector('#page-title').textContent,
+        document.querySelector('#builder-client').textContent,
+        Array.from(document.querySelector('#builder-provider').options, (item) => item.textContent),
+        document.querySelector('#builder-generate').disabled,
+        document.documentElement.scrollWidth <= window.innerWidth
+      ]`);
+      assert.deepEqual(builder, ['Custom Addon Builder · Beta', 'Target: Classic Anniversary 2.5.5.67890', ['Codex', 'Claude'], true, true]);
+      const keyForm = await evaluate(socket, `(() => {
+        const auth = document.querySelector('#builder-auth');
+        auth.value = 'key';
+        auth.dispatchEvent(new Event('change'));
+        return [document.querySelector('#builder-key-form').hidden, document.querySelector('#builder-key').type];
+      })()`);
+      assert.deepEqual(keyForm, [false, 'password']);
+      console.log('Packaged UI passed client switching, compact layout, keyboard focus, and builder checks.');
     } catch (error) {
       if (logs) console.error(logs);
       throw error;
