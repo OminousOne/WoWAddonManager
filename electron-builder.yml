@@ -7,6 +7,9 @@ files:
   - src/**/*
   - package.json
 asar: true
+asarUnpack:
+  - node_modules/@openai/codex-*/vendor/**/*
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/claude*
 npmRebuild: false
 icon: assets/icon.png
 mac:

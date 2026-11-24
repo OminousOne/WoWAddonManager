@@ -101,7 +101,7 @@ function createLibrary(store) {
       await recover(paths, committed(client));
       const installed = packages(client);
       const previous = installed[key];
-      if (Boolean(previous) !== existing) {
+      if (existing !== null && Boolean(previous) !== existing) {
         throw new Error(existing ? 'This managed addon is no longer installed.' : 'This addon is already installed.');
       }
       const normalize = (name) => name.normalize('NFC').toLowerCase();
@@ -200,6 +200,21 @@ function createLibrary(store) {
     });
   }
 
+  function installCustom(client, addon) {
+    const { id, title, folder, files } = addon;
+    return change(client, packageKey('local', id), async (paths, previous) => {
+      if (previous && (!previous.custom || previous.folders.length !== 1 || previous.folders[0] !== folder)) {
+        throw new Error('This draft does not own the installed addon.');
+      }
+      const directory = path.join(paths.stage, folder);
+      await fs.mkdir(directory, { recursive: true });
+      for (const [name, contents] of Object.entries(files)) {
+        await fs.writeFile(path.join(directory, name), contents, { flag: 'wx' });
+      }
+      return { source: 'local', id, title, folders: [folder], custom: true };
+    }, { existing: null });
+  }
+
   function remove(client, key) {
     return change(client, key, () => null, { existing: true });
   }
@@ -236,7 +251,7 @@ function createLibrary(store) {
     return results;
   }
 
-  return { list, install, importZip, remove, pin, refresh, updates };
+  return { list, install, importZip, installCustom, remove, pin, refresh, updates };
 }
 
 module.exports = { createLibrary };
