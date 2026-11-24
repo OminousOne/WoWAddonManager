@@ -154,3 +154,41 @@ test('announces Discover searches and restores focus to the project card on retu
   assert.equal(restored.focused, true);
   assert.equal($('#catalog-status').children[1].textContent, warning);
 });
+
+test('distinguishes a saved CurseForge key from the environment fallback', async () => {
+  const environment = { curseforge: true, curseforgeKeySource: 'environment', curseforgeKeySaved: false };
+  const saved = { curseforge: true, curseforgeKeySource: 'saved', curseforgeKeySaved: true };
+  const $ = await loadRenderer({
+    sources: async () => environment,
+    editions: async () => [],
+    setCurseForgeKey: async (key) => key ? saved : environment,
+  });
+
+  await $('#sources-tab').listeners.click();
+  assert.equal($('#key-status').textContent, 'Environment key');
+  assert.equal($('#clear-key').disabled, true);
+  $('#api-key').value = 'fixture';
+  await $('#source-form').listeners.submit({ preventDefault() {} });
+  assert.equal($('#api-key').value, '');
+  assert.equal($('#key-status').textContent, 'Saved key');
+  assert.equal($('#clear-key').disabled, false);
+  await $('#clear-key').listeners.click();
+  assert.equal($('#key-status').textContent, 'Environment key');
+  assert.equal($('#clear-key').disabled, true);
+  assert.match($('#notice').textContent, /using the environment key/);
+});
+
+test('allows clearing a saved CurseForge key that is unavailable', async () => {
+  const $ = await loadRenderer({
+    sources: async () => ({ curseforge: false, curseforgeKeySource: null, curseforgeKeySaved: true }),
+    editions: async () => [],
+    setCurseForgeKey: async () => ({ curseforge: false, curseforgeKeySource: null, curseforgeKeySaved: false }),
+  });
+
+  await $('#sources-tab').listeners.click();
+  assert.equal($('#key-status').textContent, 'Saved key unavailable');
+  assert.equal($('#clear-key').disabled, false);
+  await $('#clear-key').listeners.click();
+  assert.equal($('#key-status').textContent, 'Key required');
+  assert.equal($('#clear-key').disabled, true);
+});
