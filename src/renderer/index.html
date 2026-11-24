@@ -46,7 +46,7 @@
     <section id="library" class="panel" aria-labelledby="page-title">
       <div class="toolbar">
         <label class="search"><span aria-hidden="true">⌕</span><input id="filter" type="search" aria-label="Filter installed addons" placeholder="Filter installed addons"></label>
-        <div class="actions">
+        <div class="actions library-controls">
           <select id="library-filter" aria-label="Show installed addons by status">
             <option value="all">All addons</option>
             <option value="updates">Updates available</option>
@@ -54,7 +54,7 @@
             <option value="local">Manually installed</option>
           </select>
           <button id="update-all" class="button primary" hidden>Update all</button>
-          <span id="count"></span>
+          <span id="count" role="status"></span>
         </div>
       </div>
       <div id="results"></div>
@@ -71,6 +71,7 @@
         </select>
         <button class="button primary" type="submit" id="search-button">Search</button>
       </form>
+      <div id="catalog-status" role="status"></div>
       <div id="catalog-results"></div>
     </section>
     <section id="project" aria-labelledby="page-title" hidden></section>
