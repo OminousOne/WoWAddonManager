@@ -5,15 +5,26 @@
   "description": "A desktop addon manager for World of Warcraft",
   "author": "Julien DeWolfe",
   "private": true,
+  "homepage": "https://github.com/OminousOne/WoWAddonManager",
   "main": "src/main/index.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test"
+    "test": "node --test",
+    "package": "electron-builder --publish never",
+    "smoke": "node scripts/smoke.cjs"
   },
   "engines": {
     "node": ">=24"
   },
   "devDependencies": {
-    "electron": "45.4.1"
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "yazl": "3.3.1"
+  },
+  "dependencies": {
+    "yauzl": "3.4.0"
+  },
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "11.0.9"
   }
 }

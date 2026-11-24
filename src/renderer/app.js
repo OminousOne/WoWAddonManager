@@ -2,7 +2,16 @@ const $ = (selector) => document.querySelector(selector);
 const api = window.ledger;
 const edition = $('#edition');
 const filter = $('#filter');
-const state = { installations: [], addons: [], selection: null, busy: false };
+const state = {
+  installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, curseforge: false,
+  updateResults: new Map(), checking: false, checkId: 0,
+};
+const sourceNames = { wowinterface: 'WoWInterface', tukui: 'Tukui', curseforge: 'CurseForge', local: 'ZIP import' };
+const pages = {
+  library: ['My AddOns', 'Addons installed for the selected WoW client.'],
+  catalog: ['Discover', 'Find compatible addons for the selected WoW client.'],
+  sources: ['Sources', 'Manage the catalogs available in Discover.'],
+};
 
 function el(tag, text, className) {
   const item = document.createElement(tag);
@@ -51,6 +60,16 @@ function table(headings, rows) {
 }
 
 function render() {
+  for (const [view, labels] of Object.entries(pages)) {
+    const active = state.view === view;
+    $(`#${view}`).hidden = !active;
+    if (active) {
+      $(`#${view}-tab`).setAttribute('aria-current', 'page');
+      $('#page-title').textContent = labels[0];
+      $('#subtitle').textContent = labels[1];
+    } else $(`#${view}-tab`).removeAttribute('aria-current');
+  }
+  $('#library-actions').hidden = state.view !== 'library';
   edition.replaceChildren();
   const installations = state.installations;
   const selected = installations.find(({ id }) => id === state.selection);
@@ -67,16 +86,39 @@ function render() {
   $('#open-folder').disabled = state.busy || !selected;
   $('#add-folder').disabled = state.busy;
   $('#refresh').disabled = state.busy;
+  $('#import-zip').disabled = state.busy || !selected;
+  $('#check-updates').disabled = state.busy || state.checking || !state.addons.some(isOnline);
+  $('#check-updates').textContent = state.checking ? 'Checking…' : 'Check updates';
   const details = $('#client-details');
   details.textContent = selected ? (selected.version || selected.directory) : 'Select a game folder to begin';
   details.title = selected?.directory || '';
 
+  if (state.view === 'catalog') return renderCatalog(selected);
+  if (state.view === 'sources') {
+    $('#key-status').textContent = state.curseforge ? 'Enabled' : 'Key required';
+    $('#save-key').disabled = state.busy;
+    $('#clear-key').disabled = state.busy || !state.curseforge;
+    return;
+  }
+
   const results = $('#results');
   filter.disabled = !selected;
   const query = filter.value.trim().toLowerCase();
-  const matched = state.addons.filter((addon) => [addon.title, addon.folder, addon.author]
-    .some((value) => value.toLowerCase().includes(query)));
-  $('#count').textContent = selected ? `${matched.length} of ${state.addons.length} addons` : '';
+  const group = $('#library-filter').value;
+  const available = state.addons.filter((addon) => updateFor(addon)?.status === 'available' && !addon.pinned);
+  $('#library-filter').disabled = !selected;
+  $('#update-all').hidden = !available.length;
+  $('#update-all').disabled = state.busy;
+  $('#update-all').textContent = `Update all (${available.length})`;
+  const matched = state.addons.filter((addon) => {
+    if (group === 'updates' && updateFor(addon)?.status !== 'available') return false;
+    if (group === 'pinned' && !addon.pinned) return false;
+    if (group === 'local' && addon.source) return false;
+    return [addon.title, addon.folder, addon.author, ...(addon.folders || [])]
+      .some((value) => value?.toLowerCase().includes(query));
+  });
+  $('#count').textContent = selected ? (query || group !== 'all' ? `${matched.length} of ${state.addons.length} addons`
+    : `${state.addons.length} ${state.addons.length === 1 ? 'addon' : 'addons'}`) : '';
   if (!selected) {
     const action = button('Choose WoW folder', addFolder, true);
     action.disabled = state.busy;
@@ -88,18 +130,219 @@ function render() {
     return;
   }
   if (!matched.length) {
+    const filtered = query || group !== 'all';
     results.replaceChildren(empty(
-      state.busy ? 'Reading your addons…' : query ? 'No matching addons' : 'No addons found',
-      query ? 'Try a different addon name or author.' : 'Addons found in this client’s Interface/AddOns folder will appear here.',
+      state.busy ? 'Reading your addons…' : filtered ? 'No matching addons' : 'No addons found',
+      filtered ? 'Change the search or status filter.' : 'Discover addons online or import a ZIP file.',
+      !filtered && !state.busy ? button('Discover addons', () => showPage('catalog'), true) : undefined,
     ));
     return;
   }
   const rows = matched.map((addon) => {
     const title = el('strong', addon.title || addon.folder);
-    title.append(el('small', addon.folder));
-    return [title, addon.author || '—', addon.version || '—'];
+    title.append(el('small', addon.author || (addon.source ? sourceNames[addon.source] : addon.folder)));
+    const status = updateFor(addon);
+    const version = el('span', addon.version || '—');
+    if (status?.status === 'available') version.append(el('small', status.version, 'warning'));
+    const stateLabel = addon.damaged ? 'Missing files' : addon.pinned ? 'Pinned' : status?.status === 'available'
+      ? 'Update available' : status?.status === 'current' ? 'Up to date' : status?.status === 'unavailable'
+        ? 'Check failed' : addon.source ? 'Installed' : 'Manual';
+    const action = status?.status === 'available' && !addon.pinned
+      ? button('Update', () => changeAddon(addon, 'update'), true)
+      : button('Details', () => showAddon(addon));
+    action.disabled = state.busy;
+    action.setAttribute('aria-label', `${action.textContent} ${addon.title || addon.folder}`);
+    const actions = el('div', null, 'row-actions');
+    actions.append(action);
+    if (action.textContent === 'Update') {
+      const more = button('⋯', () => showAddon(addon));
+      more.disabled = state.busy;
+      more.setAttribute('aria-label', `Details for ${addon.title || addon.folder}`);
+      actions.append(more);
+    }
+    return [title, version, el('span', stateLabel, status?.status === 'available' && !addon.pinned ? 'badge' : ''), actions];
   });
-  results.replaceChildren(table([['Addon', '52%'], ['Author', '28%'], ['Version', '20%']], rows));
+  results.replaceChildren(table([['Addon', '37%'], ['Version', '22%'], ['Status', '20%'], ['Actions', '21%']], rows));
+}
+
+function isOnline(addon) {
+  return addon.source && addon.source !== 'local';
+}
+
+function updateFor(addon) {
+  const result = state.updateResults.get(addon.key);
+  return result?.revision === addon.revision ? result : undefined;
+}
+
+async function checkUpdates(announce = false) {
+  const client = state.selection;
+  if (!client || !state.addons.some(isOnline)) return;
+  const checkId = ++state.checkId;
+  state.checking = true;
+  if (announce) notify();
+  if (!state.busy) render();
+  try {
+    const statuses = await api.updates(client);
+    if (state.checkId !== checkId || state.selection !== client) return;
+    state.updateResults = new Map(statuses.map((status) => [status.key, status]));
+    if (announce) {
+      const changed = statuses.filter(({ status }) => status === 'available').length;
+      const failed = statuses.filter(({ status }) => status === 'unavailable').length;
+      const message = changed ? `${changed} ${changed === 1 ? 'update is' : 'updates are'} available.`
+        : failed ? 'Update check finished.' : 'Your catalog addons are up to date.';
+      notify(failed ? `${message} Details are available for ${failed} failed ${failed === 1 ? 'check' : 'checks'}.` : message);
+    }
+  } catch (error) {
+    if (announce && checkId === state.checkId) notify(error.message);
+  } finally {
+    if (checkId === state.checkId) {
+      state.checking = false;
+      if (!state.busy) render();
+    }
+  }
+}
+
+function cancelCheck() {
+  state.checkId++;
+  state.checking = false;
+  state.updateResults.clear();
+}
+
+async function changeAddon(addon, action) {
+  return run(async () => {
+    await api.changeAddon(state.selection, addon.key, action);
+    await readAddons();
+    if (action === 'update') {
+      const current = state.addons.find(({ key }) => key === addon.key);
+      if (current) state.updateResults.set(addon.key, { revision: current.revision, status: 'current' });
+    }
+    const labels = { update: 'updated', repair: 'repaired', pin: 'pinned', unpin: 'unpinned', remove: 'removed' };
+    notify(`${addon.title} ${labels[action]}.`);
+  });
+}
+
+function confirmRemove(addon) {
+  const dialog = $('#remove-dialog');
+  dialog.returnValue = 'cancel';
+  $('#remove-description').textContent = `Remove ${addon.title} and its ${addon.folders.length === 1 ? 'addon folder' : 'addon folders'} from this client? Its in-game settings stay in the WTF folder.`;
+  dialog.addEventListener('close', () => {
+    if (dialog.returnValue === 'remove') changeAddon(addon, 'remove');
+  }, { once: true });
+  dialog.showModal();
+}
+
+function showAddon(addon) {
+  const dialog = $('#addon-dialog');
+  const update = updateFor(addon);
+  $('#addon-dialog-title').textContent = addon.title || addon.folder;
+  const details = [sourceNames[addon.source] || 'Manually installed', addon.version, addon.author].filter(Boolean);
+  if (addon.notes) details.push(addon.notes);
+  if (update?.reason) details.push(update.reason);
+  if (addon.damaged) details.push('One or more managed addon folders are missing.');
+  $('#addon-dialog-details').textContent = details.join(' · ');
+  $('#addon-dialog-folders').replaceChildren(...(addon.folders || [addon.folder]).map((folder) => el('li', folder)));
+  const action = (label, type, primary) => button(label, () => {
+    dialog.close();
+    changeAddon(addon, type);
+  }, primary);
+  const actions = [];
+  if (isOnline(addon)) {
+    if (update?.status === 'available' && !addon.pinned) actions.push(action('Update addon', 'update', true));
+    actions.push(action('Repair', 'repair'));
+    actions.push(action(addon.pinned ? 'Unpin' : 'Pin version', addon.pinned ? 'unpin' : 'pin'));
+  }
+  if (addon.key) {
+    actions.push(button('Remove…', () => {
+      dialog.close();
+      confirmRemove(addon);
+    }));
+  }
+  $('#addon-dialog-actions').replaceChildren(...actions);
+  dialog.showModal();
+}
+
+function updateAll() {
+  return run(async () => {
+    const candidates = state.addons.filter((addon) => updateFor(addon)?.status === 'available' && !addon.pinned);
+    const failed = [];
+    const completed = new Set();
+    for (const addon of candidates) {
+      try {
+        await api.changeAddon(state.selection, addon.key, 'update');
+        completed.add(addon.key);
+      } catch (error) {
+        failed.push(`${addon.title} · ${error.message}`);
+      }
+    }
+    await readAddons();
+    for (const addon of state.addons) {
+      if (completed.has(addon.key)) state.updateResults.set(addon.key, { revision: addon.revision, status: 'current' });
+    }
+    notify([`Updated ${completed.size} of ${candidates.length} addons.`, ...failed].join('\n'));
+  });
+}
+
+function renderCatalog(client) {
+  const items = state.catalog?.items;
+  const results = $('#catalog-results');
+  $('#query').disabled = !client || state.busy;
+  $('#source').disabled = !client || state.busy;
+  $('#source').querySelector('[value=curseforge]').disabled = !state.curseforge;
+  $('#search-button').disabled = !client || state.busy;
+  if (!client) {
+    results.replaceChildren(empty('Choose a WoW installation', 'Search uses your selected installation to find compatible addons.',
+      button('Choose WoW folder', addFolder, true)));
+    return;
+  }
+  if (!items?.length) {
+    results.replaceChildren(empty(
+      state.busy ? 'Loading catalog…' : items ? 'No matching addons' : 'Find an addon',
+      items ? 'Try another name or change the source.' : 'Search by name or browse popular releases.',
+    ));
+    return;
+  }
+  const rows = items.map((item) => {
+    const title = el('strong', item.title);
+    title.append(el('small', item.author || sourceNames[item.source]));
+    if (item.summary) title.append(el('small', item.summary, 'summary'));
+    const installed = state.addons.some((addon) => addon.source === item.source && addon.id === item.id);
+    const install = button(installed ? 'Installed' : item.canInstall ? 'Install' : 'Unavailable', () => run(async () => {
+      if (await api.install(state.selection, item.source, item.id)) {
+        await readAddons();
+        notify(`${item.title} installed.`);
+      }
+    }));
+    install.disabled = installed || !item.canInstall || state.busy;
+    install.setAttribute('aria-label', `${install.textContent} ${item.title}`);
+    const links = el('div');
+    links.append(el('span', sourceNames[item.source]));
+    if (item.website) {
+      const open = button('Project page ↗', () => run(() => api.openProject(item.source, item.website)));
+      open.className = 'text-button';
+      open.disabled = state.busy;
+      open.setAttribute('aria-label', `Open the project page for ${item.title}`);
+      links.append(open);
+    }
+    return [title, links, install];
+  });
+  results.replaceChildren(table([['Addon', '64%'], ['Source', '18%'], ['Action', '18%']], rows));
+}
+
+async function readCatalog() {
+  if (!state.selection) return;
+  const response = await api.search(state.selection, $('#query').value, $('#source').value);
+  state.catalog = response;
+  if (response.warnings.length) notify(response.warnings.join('\n'));
+}
+
+async function showPage(view) {
+  if (state.busy || view === state.view) return;
+  state.view = view;
+  if (view === 'catalog' && !state.catalog) await run(readCatalog);
+  else {
+    notify();
+    render();
+  }
 }
 
 async function run(operation) {
@@ -125,32 +368,79 @@ async function setInstallations(found) {
   state.installations = found;
   const preferred = state.selection || localStorage.getItem('edition');
   const selection = found.find(({ id }) => id === preferred)?.id || found[0]?.id || null;
-  if (selection !== state.selection) state.addons = [];
-  state.selection = selection;
+  if (selection !== state.selection) {
+    cancelCheck();
+    state.addons = [];
+    state.catalog = null;
+    state.selection = selection;
+    render();
+  }
   if (state.selection) localStorage.setItem('edition', state.selection);
   await readAddons();
+  state.catalog = null;
+  if (state.view === 'catalog') await readCatalog();
 }
 
 function addFolder() {
   return run(async () => {
     const found = await api.addEdition();
     if (found) await setInstallations(found);
-  });
+  }).then(() => checkUpdates());
 }
 
 edition.addEventListener('change', () => {
   const selected = edition.value;
   run(async () => {
+    cancelCheck();
     state.selection = selected;
     localStorage.setItem('edition', selected);
     state.addons = [];
     filter.value = '';
+    state.catalog = null;
     await readAddons();
-  });
+    if (state.view === 'catalog') await readCatalog();
+  }).then(() => checkUpdates());
 });
 filter.addEventListener('input', render);
-$('#refresh').addEventListener('click', () => run(async () => setInstallations(await api.editions())));
+$('#refresh').addEventListener('click', () => run(async () => setInstallations(await api.editions())).then(() => checkUpdates()));
+$('#library-filter').addEventListener('change', render);
+$('#check-updates').addEventListener('click', () => checkUpdates(true));
+$('#update-all').addEventListener('click', updateAll);
+$('#dialog-close').addEventListener('click', () => $('#addon-dialog').close());
+$('#import-zip').addEventListener('click', () => run(async () => {
+  if (await api.importZip(state.selection)) {
+    await readAddons();
+    notify('Addon ZIP imported.');
+  }
+}));
 $('#add-folder').addEventListener('click', addFolder);
 $('#open-folder').addEventListener('click', () => run(() => api.openEdition(state.selection)));
 
-run(async () => setInstallations(await api.editions()));
+for (const view of Object.keys(pages)) $(`#${view}-tab`).addEventListener('click', () => showPage(view));
+$('#catalog-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  run(readCatalog);
+});
+$('#source').addEventListener('change', () => run(readCatalog));
+$('#source-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!$('#api-key').value.trim()) return;
+  run(async () => {
+    ({ curseforge: state.curseforge } = await api.setCurseForgeKey($('#api-key').value));
+    $('#api-key').value = '';
+    state.catalog = null;
+    notify('CurseForge key saved.');
+  });
+});
+$('#clear-key').addEventListener('click', () => run(async () => {
+  ({ curseforge: state.curseforge } = await api.setCurseForgeKey(''));
+  $('#api-key').value = '';
+  $('#source').value = 'all';
+  state.catalog = null;
+  notify('Saved CurseForge key cleared.');
+}));
+
+run(async () => {
+  ({ curseforge: state.curseforge } = await api.sources());
+  await setInstallations(await api.editions());
+}).then(() => checkUpdates());
