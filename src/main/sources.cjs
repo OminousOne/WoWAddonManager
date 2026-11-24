@@ -429,16 +429,20 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
         json(`${endpoint}/description`, source).then(({ data }) => webText(data)).catch(() => ''),
       ]);
       if (mod.gameId !== 432) throw new Error('This is not a World of Warcraft addon.');
-      const latest = (mod.latestFiles || []).filter((file) => compatibleForgeFile(file, client))
+      const listed = (mod.latestFiles || []).filter((file) => compatibleForgeFile(file, client))
         .sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      const latest = mod.allowModDistribution === false ? listed : await latestForgeFile(endpoint, client).catch(() => listed);
       const changelog = latest ? await json(`${endpoint}/files/${latest.id}/changelog`, source)
         .then(({ data }) => webText(data)).catch(() => '') : '';
       const entry = forgeEntry(mod);
       const versions = forgeVersions(mod);
-      return forClient({ ...entry, description: description || entry.summary, changelog,
-        versions, version: latest?.displayName || latest?.fileName, time: Date.parse(latest?.fileDate),
+      return { ...entry, description: description || entry.summary, changelog,
+        isCompatible: Boolean(latest) || compatible(versions, client),
+        canInstall: entry.canInstall && Boolean(latest),
+        versions: [...new Set([...versions, ...(latest?.gameVersions || [])])],
+        version: latest?.displayName || latest?.fileName, time: Date.parse(latest?.fileDate),
         screenshots: images(source, (mod.screenshots || []).map(({ url }) => url)),
-      }, versions, client);
+      };
     }
     throw new Error('This addon project is unavailable.');
   }
