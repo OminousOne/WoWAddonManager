@@ -22,4 +22,11 @@ contextBridge.exposeInMainWorld('ledger', {
   updates: request('addons:updates'),
   changeAddon: request('addons:change'),
   importZip: request('addons:import'),
+  builderKeys: request('builder:keys'),
+  builderKey: request('builder:key'),
+  builderAccount: request('builder:account'),
+  builderStop: request('builder:stop'),
+  builderGenerate: request('builder:generate'),
+  builderExport: request('builder:export'),
+  builderInstall: request('builder:install'),
 });

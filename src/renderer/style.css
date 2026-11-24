@@ -305,3 +305,41 @@ dialog .actions { margin-top: 18px; }
   .project-overview { grid-template-columns: minmax(0, 1fr); }
   .project-overview > .addon-media { max-width: 155px; }
 }
+
+.beta-label {
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 1px solid var(--frame);
+  border-radius: 4px;
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 650;
+}
+#builder { display: grid; gap: 16px; }
+.builder-panel { display: grid; gap: 12px; padding: clamp(14px, 3vw, 24px); }
+.builder-panel h2 { margin: 0; font-size: 17px; }
+.builder-panel p, #builder-account-hint { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.builder-panel p:empty { display: none; }
+.builder-panel label { font-weight: 640; }
+.builder-panel :is(input, textarea) {
+  min-width: 0;
+  width: 100%;
+  padding: 9px 10px;
+  color: inherit;
+  font: inherit;
+  background: #0d1420;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.builder-panel textarea { resize: vertical; }
+.builder-fields, .builder-key-actions, .builder-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.builder-fields > label { flex: 1 1 170px; }
+.builder-fields select, .builder-key-actions { margin-top: 6px; }
+.builder-heading { justify-content: space-between; }
+.builder-key-actions input { flex: 1 1 190px; }
+#builder-lua { font: 13px/1.55 ui-monospace, monospace; }
