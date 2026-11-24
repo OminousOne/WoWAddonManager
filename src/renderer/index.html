@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' ledger-image:; font-src 'self'; base-uri 'none'; form-action 'none'">
   <title>AddOn Ledger</title>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./motion.css">
   <script defer src="./app.js"></script>
   <script defer src="./builder.js"></script>
 </head>
@@ -74,6 +75,11 @@
         <button class="button primary" type="submit" id="search-button">Search</button>
       </form>
       <div id="catalog-status" role="status"></div>
+      <div id="catalog-loading" class="catalog-grid" aria-hidden="true">
+        <div class="catalog-placeholder"></div>
+        <div class="catalog-placeholder"></div>
+        <div class="catalog-placeholder"></div>
+      </div>
       <div id="catalog-results"></div>
     </section>
     <section id="project" aria-labelledby="page-title" hidden></section>

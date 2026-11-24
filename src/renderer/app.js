@@ -2,6 +2,8 @@ const $ = (selector) => document.querySelector(selector);
 const api = window.ledger;
 const edition = $('#edition');
 const filter = $('#filter');
+const pageIntro = $('.page-intro');
+const motionPreference = window.matchMedia?.('(prefers-reduced-motion: no-preference)');
 const state = {
   installations: [], addons: [], selection: null, busy: false, view: 'library', catalog: null, sourceSettings: {},
   updateResults: new Map(), checking: false, checkId: 0, project: null, catalogPending: false, libraryError: false,
@@ -13,6 +15,14 @@ const pages = {
   builder: ['Custom Addon Builder · Beta', 'Describe a World of Warcraft addon and draft it with Claude or Codex.'],
   sources: ['Sources', 'Manage the catalogs available in Discover.'],
 };
+let renderedView;
+let revealedCatalog;
+let revealedProject;
+let pageIntroAnimation;
+
+motionPreference?.addEventListener('change', ({ matches }) => {
+  if (!matches) pageIntroAnimation?.cancel();
+});
 
 function el(tag, text, className) {
   const item = document.createElement(tag);
@@ -32,6 +42,20 @@ function notify(message = '') {
   const notice = $('#notice');
   notice.hidden = !message;
   notice.textContent = message;
+}
+
+function setPending(control, pending) {
+  if (pending) control?.setAttribute('data-pending', '');
+  else control?.removeAttribute('data-pending');
+}
+
+function animatePageIntro() {
+  if (!motionPreference?.matches) return;
+  pageIntroAnimation?.cancel();
+  pageIntroAnimation = pageIntro.animate(
+    [{ opacity: .45, translate: state.view === 'project' ? '8px 0' : '0 5px' }, { opacity: 1, translate: '0' }],
+    { duration: 210, easing: 'cubic-bezier(.2, .75, .25, 1)' },
+  );
 }
 
 function empty(title, description, action) {
@@ -79,6 +103,10 @@ function render() {
   $('#page-title').textContent = title;
   $('#subtitle').textContent = subtitle;
   $('#library-actions').hidden = state.view !== 'library';
+  if (state.view !== renderedView) {
+    renderedView = state.view;
+    animatePageIntro();
+  }
   edition.replaceChildren();
   const installations = state.installations;
   const selected = installations.find(({ id }) => id === state.selection);
@@ -98,6 +126,7 @@ function render() {
   $('#import-zip').disabled = state.busy || !selected;
   $('#check-updates').disabled = state.busy || state.checking || !state.addons.some(isOnline);
   $('#check-updates').textContent = state.checking ? 'Checking…' : 'Check updates';
+  setPending($('#check-updates'), state.checking);
   const details = $('#client-details');
   details.textContent = selected ? (selected.version || selected.directory) : 'Select a game folder to begin';
   details.title = selected?.directory || '';
@@ -132,6 +161,8 @@ function render() {
     return [addon.title, addon.folder, addon.author, ...(addon.folders || [])]
       .some((value) => value?.toLowerCase().includes(query));
   });
+  results.setAttribute('data-results', selected && !state.libraryError && matched.length ? 'table' : 'empty');
+  results.setAttribute('data-loading', String(state.busy && (!selected || (!state.libraryError && !state.addons.length))));
   $('#count').textContent = selected && !state.libraryError ? (query || group !== 'all' ? `${matched.length} of ${state.addons.length} addons`
     : `${state.addons.length} ${state.addons.length === 1 ? 'addon' : 'addons'}`) : '';
   if (!selected) {
@@ -302,14 +333,17 @@ function updateAll() {
       if (completed.has(addon.key)) state.updateResults.set(addon.key, { revision: addon.revision, status: 'current' });
     }
     notify([`Updated ${completed.size} of ${candidates.length} addons.`, ...failed].join('\n'));
-  });
+  }, $('#update-all'));
 }
 
 function renderCatalog(client) {
+  const reveal = state.catalog !== revealedCatalog;
+  revealedCatalog = state.catalog;
   const { items, query, warnings, curseForgeSearch } = state.catalog || {};
   const results = $('#catalog-results');
   const status = $('#catalog-status');
   results.setAttribute('aria-busy', String(state.catalogPending));
+  setPending($('#search-button'), state.catalogPending);
   status.replaceChildren();
   if (state.catalogPending) status.append(el('p', 'Searching sources…'));
   if (items) {
@@ -343,6 +377,7 @@ function renderCatalog(client) {
     return;
   }
   const grid = el('div', null, 'catalog-grid');
+  if (reveal) grid.setAttribute('data-reveal', '');
   grid.append(...items.map(catalogCard));
   results.append(grid);
 }
@@ -357,8 +392,10 @@ function media(source, url, { alt = '', cover = false, lazy = true } = {}) {
   image.alt = alt;
   image.loading = lazy ? 'lazy' : 'eager';
   image.decoding = 'async';
+  image.addEventListener('load', () => image.setAttribute('data-loaded', ''), { once: true });
   image.addEventListener('error', () => image.remove(), { once: true });
   image.src = `ledger-image://${source}/${encodeURIComponent(url)}`;
+  if (image.complete && image.naturalWidth) image.setAttribute('data-loaded', '');
   container.append(image);
   return container;
 }
@@ -403,6 +440,9 @@ function catalogCard(item) {
 function renderProject() {
   const root = $('#project');
   const { entry, detail } = state.project;
+  const reveal = detail && detail !== revealedProject;
+  revealedProject = detail;
+  root.setAttribute('aria-busy', String(state.busy && !detail));
   const item = detail || entry;
   const overview = el('article', null, 'panel project-overview');
   const release = el('div', null, 'project-release');
@@ -425,6 +465,7 @@ function renderProject() {
   overview.append(media(item.source, item.image, { cover: item.source === 'wowinterface', lazy: false }), release);
 
   const about = el('article', null, 'panel project-content');
+  if (reveal) about.setAttribute('data-reveal', '');
   const description = item.description || item.summary
     || (state.busy && !detail ? 'Loading project details…' : 'This source has no description for the addon.');
   about.append(el('h2', 'About this addon'), el('p', description, 'project-copy'));
@@ -436,6 +477,7 @@ function renderProject() {
 
   if (item.screenshots?.length) {
     const gallery = el('article', null, 'panel project-content');
+    if (reveal) gallery.setAttribute('data-reveal', '');
     gallery.append(el('h2', 'Screenshots'));
     const photos = el('div', null, 'screenshot-grid');
     for (const [index, url] of item.screenshots.entries()) {
@@ -456,6 +498,7 @@ function renderProject() {
 
   if (item.changelog?.trim()) {
     const notes = el('details', null, 'panel project-content release-notes');
+    if (reveal) notes.setAttribute('data-reveal', '');
     notes.append(el('summary', 'Release notes'), el('p', item.changelog, 'project-copy'));
     root.append(notes);
   }
@@ -506,9 +549,10 @@ async function showPage(view) {
   }
 }
 
-async function run(operation) {
+async function run(operation, trigger) {
   if (state.busy) return;
   state.busy = true;
+  setPending(trigger, true);
   notify();
   render();
   try {
@@ -517,6 +561,7 @@ async function run(operation) {
     notify(error.message);
   } finally {
     state.busy = false;
+    setPending(trigger, false);
     render();
   }
 }
@@ -577,7 +622,7 @@ function saveCurseForgeKey(key) {
     if (key) notify('CurseForge key saved.');
     else if (state.sourceSettings.curseforge) notify('Saved key cleared. CurseForge is using the environment key.');
     else notify('Saved CurseForge key cleared.');
-  });
+  }, key ? $('#save-key') : $('#clear-key'));
 }
 
 edition.addEventListener('change', () => {
@@ -585,7 +630,9 @@ edition.addEventListener('change', () => {
   return run(() => selectInstallation(selected)).then(() => checkUpdates());
 });
 filter.addEventListener('input', render);
-$('#refresh').addEventListener('click', () => run(async () => setInstallations(await api.editions())).then(() => checkUpdates()));
+$('#refresh').addEventListener('click', () => run(
+  async () => setInstallations(await api.editions()), $('#refresh'),
+).then(() => checkUpdates()));
 $('#library-filter').addEventListener('change', render);
 $('#check-updates').addEventListener('click', () => checkUpdates(true));
 $('#update-all').addEventListener('click', updateAll);
@@ -597,7 +644,7 @@ $('#import-zip').addEventListener('click', () => run(async () => {
     await readAddons();
     notify('Addon ZIP imported.');
   }
-}));
+}, $('#import-zip')));
 $('#add-folder').addEventListener('click', addFolder);
 $('#open-folder').addEventListener('click', () => run(() => api.openEdition(state.selection)));
 
