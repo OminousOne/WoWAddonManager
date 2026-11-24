@@ -12,7 +12,7 @@
 <body>
   <aside class="sidebar">
     <header class="brand">
-      <span class="brand-mark" aria-hidden="true">◈</span>
+      <span class="brand-mark" aria-hidden="true"></span>
       <div><strong>AddOn Ledger</strong><span>World of Warcraft</span></div>
     </header>
     <div class="client-picker">
@@ -34,14 +34,14 @@
   <main>
     <button id="project-back" type="button" class="text-button" hidden>← Back to Discover</button>
     <header class="page-head">
-      <div>
+      <div class="page-intro">
         <h1 id="page-title">My AddOns</h1>
         <p id="subtitle">Addons installed for the selected WoW client.</p>
-      </div>
-      <div id="library-actions" class="actions">
-        <button id="import-zip" class="button">Import ZIP</button>
-        <button id="refresh" class="button">Rescan library</button>
-        <button id="check-updates" class="button primary">Check updates</button>
+        <div id="library-actions" class="actions">
+          <button id="check-updates" class="button primary">Check updates</button>
+          <button id="refresh" class="button">Rescan library</button>
+          <button id="import-zip" class="button">Import ZIP</button>
+        </div>
       </div>
     </header>
     <div id="notice" class="notice" role="status" hidden></div>
@@ -136,9 +136,9 @@
       </div>
     </section>
     <section id="sources" class="panel source-settings" aria-labelledby="page-title" hidden>
-      <article><div><h2>WoWInterface</h2><p>Search and install from the WoWInterface catalog.</p></div><span class="badge">Enabled</span></article>
-      <article><div><h2>Tukui</h2><p>Install ElvUI or Tukui from their official source.</p></div><span class="badge">Enabled</span></article>
-      <article><div><h2>WowUp Hub</h2><p>Search addons published on GitHub and GitLab, including WoW Forever releases.</p></div><span class="badge">Enabled</span></article>
+      <article><div><h2>WoWInterface</h2><p>Search and install from the WoWInterface catalog.</p></div><span class="badge enabled">Enabled</span></article>
+      <article><div><h2>Tukui</h2><p>Install ElvUI or Tukui from their official source.</p></div><span class="badge enabled">Enabled</span></article>
+      <article><div><h2>WowUp Hub</h2><p>Search addons published on GitHub and GitLab, including WoW Forever releases.</p></div><span class="badge enabled">Enabled</span></article>
       <article>
         <div>
           <h2>CurseForge</h2>
