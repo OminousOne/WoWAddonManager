@@ -63,13 +63,13 @@
   }
 
   main > section, #project-back, #notice, #update-all,
-  #builder :is([role=status], #builder-output, #builder-account-row, #builder-key-form, #builder-stop) {
+  #builder :is([role=status], #builder-output, #builder-account-row, #builder-key-form, #builder-stop, #builder-cancel-connect) {
     transition: opacity var(--motion-normal) var(--motion-ease), translate var(--motion-normal) var(--motion-ease);
   }
 
   @starting-style {
-    main > section:not([hidden]), #project-back:not([hidden]), #notice:not([hidden]), #update-all:not([hidden]),
-    #builder :is([role=status]:not(:empty), #builder-output, #builder-account-row, #builder-key-form, #builder-stop):not([hidden]) {
+    main > section:not([hidden]), #project-back:not([hidden]), #notice:not(:empty), #update-all:not([hidden]),
+    #builder :is([role=status]:not(:empty), #builder-output, #builder-account-row, #builder-key-form, #builder-stop, #builder-cancel-connect):not([hidden]) {
       opacity: 0;
       translate: 0 6px;
     }
@@ -80,8 +80,8 @@
   #results[data-results=empty]:not([data-loading=true]) { animation: reveal 170ms var(--motion-ease); }
   #results[data-loading=true] .empty-mark { animation: checking-mark 1.35s ease-in-out infinite; }
 
-  .button[data-pending], #project[aria-busy=true] .project-overview { overflow: hidden; }
-  .button[data-pending]::after, #project[aria-busy=true] .project-overview::after {
+  .button[data-pending], .project-overview[aria-busy=true] { overflow: hidden; }
+  .button[data-pending]::after, .project-overview[aria-busy=true]::after {
     background: linear-gradient(90deg, transparent 15%, currentColor 50%, transparent 85%);
     animation: progress-sweep 1.15s ease-in-out infinite;
   }

@@ -155,6 +155,59 @@ test('announces Discover searches and restores focus to the project card on retu
   assert.equal($('#catalog-status').children[1].textContent, warning);
 });
 
+test('keeps the newest Discover search when users switch clients during a request', async () => {
+  const retail = { id: 'A', label: 'Retail', directory: '/retail' };
+  const classic = { id: 'B', label: 'Classic', directory: '/classic' };
+  const first = Promise.withResolvers();
+  const second = Promise.withResolvers();
+  const $ = await loadRenderer({
+    sources: async () => ({ curseforge: false }),
+    editions: async () => [retail, classic],
+    addons: async () => [],
+    search: (id) => (id === retail.id ? first : second).promise,
+  });
+
+  const opening = $('#catalog-tab').listeners.click();
+  assert.equal($('#edition').disabled, false);
+  $('#edition').value = classic.id;
+  await $('#edition').listeners.change();
+  assert.equal($('#edition').value, classic.id);
+  assert.equal($('#catalog-results').getAttribute('aria-busy'), 'true');
+
+  await $('#sources-tab').listeners.click();
+  assert.equal($('#page-title').textContent, 'Sources');
+  second.resolve({ items: [{ source: 'tukui', id: 'current', title: 'Current result' }], warnings: [] });
+  await second.promise;
+  first.reject(new Error('Old request failed'));
+  await opening;
+  assert.equal($('#page-title').textContent, 'Sources');
+
+  await $('#catalog-tab').listeners.click();
+  assert.equal($('#catalog-status').children[0].textContent, '1 result for this client');
+  const grid = $('#catalog-results').children[0];
+  assert.equal(grid.querySelectorAll('[data-project-link]')[0].textContent, 'Current result');
+});
+
+test('selects a newly added installation and leaves it selected if the picker is canceled', async () => {
+  const retail = { id: 'A', label: 'Retail', directory: '/retail' };
+  const classic = { id: 'B', label: 'Classic', directory: '/classic' };
+  const scanned = [];
+  let picker = { installations: [retail, classic], selected: classic.id };
+  const $ = await loadRenderer({
+    sources: async () => ({ curseforge: false }),
+    editions: async () => [retail],
+    addEdition: async () => picker,
+    addons: async (id) => { scanned.push(id); return []; },
+  });
+
+  await $('#add-folder').listeners.click();
+  assert.equal($('#edition').value, classic.id);
+  picker = null;
+  await $('#add-folder').listeners.click();
+  assert.equal($('#edition').value, classic.id);
+  assert.deepEqual(scanned, [retail.id, classic.id]);
+});
+
 test('distinguishes a saved CurseForge key from the environment fallback', async () => {
   const environment = { curseforge: true, curseforgeKeySource: 'environment', curseforgeKeySaved: false };
   const saved = { curseforge: true, curseforgeKeySource: 'saved', curseforgeKeySaved: true };

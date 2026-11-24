@@ -50,6 +50,14 @@ function forumText(content = '') {
     .trim();
 }
 
+function tukuiText(content) {
+  return String(content ?? '')
+    .replace(/^ {0,3}#{1,6}[ \t]+/gm, '')
+    .replace(/^([ \t]*)[*-][ \t]+/gm, '$1• ')
+    .replace(/\*\*([^*\r\n]+)\*\*/g, '$1')
+    .trim();
+}
+
 function webText(content) {
   return convert(String(content || ''), { wordwrap: false, selectors: [
     { selector: 'a', options: { ignoreHref: true } },
@@ -415,7 +423,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
         json(`${tukui}/addon/${id}`, source),
         fetchText(`${tukui}/changelog/${id}`, source).catch(() => ''),
       ]);
-      return forClient({ ...tukuiEntry(item), description: item.desc, changelog,
+      return forClient({ ...tukuiEntry(item), description: tukuiText(item.desc), changelog: tukuiText(changelog),
         versions: item.patch, version: item.version, time: Date.parse(item.last_update),
         screenshots: images(source, [item.screenshot_url, ...(item.gallery_url || [])]),
         canInstall: Boolean(item.url),

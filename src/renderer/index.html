@@ -38,15 +38,18 @@
       <div class="page-intro">
         <h1 id="page-title">My AddOns</h1>
         <p id="subtitle">Addons installed for the selected WoW client.</p>
-        <div id="library-actions" class="actions">
+      </div>
+    </header>
+    <div id="notice" class="notice" role="status"></div>
+    <section id="library" class="panel" aria-labelledby="page-title">
+      <div class="library-command">
+        <div id="library-actions" class="actions" aria-label="Library actions" role="group">
           <button id="check-updates" class="button primary">Check updates</button>
           <button id="refresh" class="button">Rescan library</button>
           <button id="import-zip" class="button">Import ZIP</button>
         </div>
+        <button id="update-all" class="button primary" hidden>Update all</button>
       </div>
-    </header>
-    <div id="notice" class="notice" role="status" hidden></div>
-    <section id="library" class="panel" aria-labelledby="page-title">
       <div class="toolbar">
         <label class="search"><span aria-hidden="true">⌕</span><input id="filter" type="search" aria-label="Filter installed addons" placeholder="Filter installed addons"></label>
         <div class="actions library-controls">
@@ -56,7 +59,6 @@
             <option value="pinned">Pinned</option>
             <option value="local">Manually installed</option>
           </select>
-          <button id="update-all" class="button primary" hidden>Update all</button>
           <span id="count" role="status"></span>
         </div>
       </div>
@@ -84,8 +86,11 @@
     </section>
     <section id="project" aria-labelledby="page-title" hidden></section>
     <section id="builder" aria-labelledby="page-title" hidden>
-      <div class="panel builder-panel">
-        <h2>AI connection</h2>
+      <div class="panel builder-panel builder-setup">
+        <div class="builder-heading">
+          <h2>AI connection</h2>
+          <span id="builder-connection" class="badge"></span>
+        </div>
         <div class="builder-fields">
           <label for="builder-provider">Provider
             <select id="builder-provider"><option value="codex">Codex</option><option value="claude">Claude</option></select>
@@ -96,8 +101,9 @@
         </div>
         <div id="builder-account-row" class="actions">
           <button type="button" id="builder-connect" class="button">Connect account</button>
-          <span id="builder-account-hint"></span>
+          <button type="button" id="builder-cancel-connect" class="button" hidden>Cancel</button>
         </div>
+        <p id="builder-account-hint"></p>
         <form id="builder-key-form" hidden>
           <label for="builder-key">Provider API key</label>
           <div class="builder-key-actions">
@@ -106,7 +112,7 @@
             <button type="button" id="builder-clear-key" class="button">Clear saved key</button>
           </div>
         </form>
-        <p id="builder-connection" role="status"></p>
+        <p id="builder-auth-status" role="status"></p>
       </div>
       <form id="builder-form" class="panel builder-panel">
         <div class="builder-heading">
@@ -127,7 +133,7 @@
       </form>
       <div id="builder-output" class="panel builder-panel" hidden>
         <div class="builder-heading">
-          <h2>Review Lua</h2>
+          <h2 id="builder-review-title" tabindex="-1">Review Lua</h2>
           <span id="builder-target" class="badge"></span>
         </div>
         <p id="builder-summary"></p>
@@ -138,6 +144,7 @@
           <button type="button" id="builder-install" class="button primary">Install addon</button>
           <button type="button" id="builder-export" class="button">Export ZIP</button>
         </div>
+        <p id="builder-compatibility" class="warning"></p>
         <p id="builder-output-status" role="status"></p>
       </div>
     </section>
@@ -151,7 +158,7 @@
           <p>Use a CurseForge API key to search and download addons that allow third-party distribution.</p>
           <form id="source-form">
             <label for="api-key">CurseForge API key</label>
-            <div class="actions"><input id="api-key" type="password" maxlength="512" autocomplete="off" spellcheck="false">
+            <div class="actions"><input id="api-key" type="password" maxlength="512" autocomplete="off" spellcheck="false" required>
               <button type="submit" id="save-key" class="button primary">Save key</button>
               <button type="button" id="clear-key" class="button">Clear saved key</button></div>
           </form>
