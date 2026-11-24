@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>AddOn Ledger</title>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">◈</span>
+      <div><strong>AddOn Ledger</strong><span>World of Warcraft</span></div>
+    </header>
+    <div class="client-picker">
+      <label for="edition">Game installation</label>
+      <select id="edition"></select>
+      <div id="client-details"></div>
+    </div>
+    <nav aria-label="Workspace">
+      <button class="nav-button" id="library-tab" aria-current="page"><span aria-hidden="true">▤</span> My AddOns</button>
+    </nav>
+    <footer class="sidebar-foot">
+      <button class="nav-button" id="open-folder"><span aria-hidden="true">↗</span> Open game folder</button>
+      <button class="nav-button" id="add-folder"><span aria-hidden="true">＋</span> Add installation</button>
+    </footer>
+  </aside>
+  <main>
+    <header class="page-head">
+      <div>
+        <h1 id="page-title">My AddOns</h1>
+        <p id="subtitle">Addons installed for the selected WoW client.</p>
+      </div>
+      <button id="refresh" class="button">Rescan library</button>
+    </header>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section id="library" class="panel" aria-labelledby="page-title">
+      <div class="toolbar">
+        <label class="search"><span aria-hidden="true">⌕</span><input id="filter" type="search" aria-label="Filter installed addons" placeholder="Filter installed addons"></label>
+        <span id="count"></span>
+      </div>
+      <div id="results"></div>
+    </section>
+  </main>
+</body>
+</html>

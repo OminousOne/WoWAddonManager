@@ -1,0 +1,19 @@
+{
+  "name": "addon-ledger",
+  "productName": "AddOn Ledger",
+  "version": "0.1.0",
+  "description": "A desktop addon manager for World of Warcraft",
+  "author": "Julien DeWolfe",
+  "private": true,
+  "main": "src/main/index.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "electron": "45.4.1"
+  }
+}
