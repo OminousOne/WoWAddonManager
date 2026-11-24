@@ -117,7 +117,7 @@ async function get(url, label, { hosts, headers = () => ({}), limit = catalogLim
     }
     if (!response.ok || !response.body || Number(response.headers.get('content-length')) > limit) {
       await response.body?.cancel();
-      throw new Error(`${label} request failed (HTTP ${response.status}).`);
+      throw Object.assign(new Error(`${label} request failed (HTTP ${response.status}).`), { status: response.status });
     }
     return response;
   }
@@ -168,6 +168,15 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
   };
   const json = async (url, source) => JSON.parse(await fetchText(url, source));
 
+  async function revisionDetails(url, source) {
+    try {
+      return await json(url, source);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      return null;
+    }
+  }
+
   function cached(url, source) {
     if (!cache.has(url)) {
       const promise = json(url, source);
@@ -204,16 +213,17 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     ...(item.latestFiles || []).filter((file) => file.releaseType === 1).flatMap((file) => file.gameVersions || []),
   ];
 
-  function hubFiles(item) {
-    return (item.releases || []).filter((file) => !file.prerelease && sourceUrl(hubDownloads, file.download_url))
+  function hubFiles(releases) {
+    return (releases || []).filter((file) => !file.prerelease && sourceUrl(hubDownloads, file.download_url))
       .map((file) => ({
         ...file, versions: (file.game_versions || []).flatMap((tag) => tag.interfaces || [tag.interface])
           .map(interfaceVersion).filter(Boolean),
       })).sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
   }
 
-  function hubRelease(files, client) {
-    return files.find((file) => compatible(file.versions, client));
+  function hubRelease(files, client, revision) {
+    return files.find((file) => (revision === undefined || String(file.id) === revision)
+      && compatible(file.versions, client));
   }
 
   function hubEntry(item, file) {
@@ -245,7 +255,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
       const game = hubGame(client);
       const path = query ? `search/${game}?${new URLSearchParams({ query, limit: '50' })}` : `featured/${game}?count=60`;
       const { addons } = await json(`${hub}/${path}`, source);
-      return addons.map((item) => hubEntry(item, hubRelease(hubFiles(item), client)));
+      return addons.map((item) => hubEntry(item, hubRelease(hubFiles(item.releases), client)));
     }
     const params = new URLSearchParams({ gameId: '432', searchFilter: query, pageSize: '50', sortField: '2', sortOrder: 'desc' });
     if (!query && client.edition === 'retail') params.set('gameVersionTypeId', '517');
@@ -291,51 +301,83 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
     return { items: items.slice(0, 60), warnings, curseForgeSearch };
   }
 
-  async function release(source, id, client) {
+  const compatibleForgeFile = (file, client) => file?.releaseType === 1 && file.isAvailable
+    && compatible(file.gameVersions, client);
+
+  async function latestForgeFile(endpoint, client) {
+    const params = new URLSearchParams();
+    if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
+    // CurseForge accepts at most 50 files per page and caps the accessible results at 10,000.
+    const limit = 10_000;
+    for (let index = 0; index < limit;) {
+      params.set('index', index);
+      params.set('pageSize', Math.min(50, limit - index));
+      const { data: files, pagination } = await json(`${endpoint}/files?${params}`, 'curseforge');
+      const file = files.filter((item) => compatibleForgeFile(item, client))
+        .sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      if (file) return file;
+      index += files.length;
+      if (!files.length || index >= (pagination?.totalCount ?? 0)) break;
+    }
+  }
+
+  async function release(source, id, client, revision) {
     if (source === 'wowup' && /^\d{1,12}$/.test(id)) {
-      const { addon } = await cached(`${hub}/${id}`, source);
-      const file = hubRelease(hubFiles(addon), client);
+      const endpoint = `${hub}/${id}`;
+      const { addon } = await cached(endpoint, source);
+      let file = hubRelease(hubFiles(addon.releases), client, revision);
+      if (!file && /^\d+$/.test(revision)) {
+        const details = await revisionDetails(`${endpoint}/releases/${revision}`, source);
+        if (details?.release) file = hubRelease(hubFiles([details.release]), client, revision);
+      }
       if (file) return { source, id, title: addon.repository_name, version: file.name || file.tag_name,
         time: Date.parse(file.published_at), revision: String(file.id), url: file.download_url };
     }
     if (source === 'wowinterface' && /^\d{1,12}$/.test(id)) {
       const entry = await getWowiListing(id);
-      if (!compatible(wowiVersions(entry || {}), client)) {
-        throw new Error('No compatible release is available for this WoW client.');
-      }
-      const [item] = await json(`${wowi}/filedetails/${id}.json`, source);
-      if (item?.UIDownload) {
-        return { source, id, title: item.UIName, version: item.UIVersion, time: Number(item.UIDate),
-          revision: `${item.UIDate}:${item.UIMD5 || item.UIVersion}`, url: item.UIDownload,
-          hash: item.UIMD5 && ['md5', item.UIMD5] };
+      if (compatible(wowiVersions(entry || {}), client)) {
+        const [item] = await json(`${wowi}/filedetails/${id}.json`, source);
+        if (item?.UIDownload) {
+          const currentRevision = `${item.UIDate}:${item.UIMD5 || item.UIVersion}`;
+          if (revision === undefined || revision === currentRevision) {
+            return { source, id, title: item.UIName, version: item.UIVersion, time: Number(item.UIDate),
+              revision: currentRevision, url: item.UIDownload, hash: item.UIMD5 && ['md5', item.UIMD5] };
+          }
+        }
       }
     }
     if (source === 'tukui' && /^(elvui|tukui)$/.test(id)) {
       const item = await json(`${tukui}/addon/${id}`, source);
-      if (item.url && compatible(item.patch, client)) {
+      if (item.url && (revision === undefined || revision === item.version) && compatible(item.patch, client)) {
         return { source, id, title: item.name, version: item.version, time: Date.parse(item.last_update),
           revision: item.version, url: item.url };
       }
     }
     if (source === 'curseforge' && /^\d{1,12}$/.test(id)) {
       if (!key) throw new Error('Add a CurseForge API key in Sources to use CurseForge.');
-      const { data: mod } = await json(`${forge}/mods/${id}`, source);
+      const endpoint = `${forge}/mods/${id}`;
+      const { data: mod } = await json(endpoint, source);
       if (mod.gameId !== 432 || mod.allowModDistribution === false) {
         throw new Error('This project is unavailable for third-party installation through CurseForge.');
       }
-      const params = new URLSearchParams({ pageSize: '50' });
-      if (client.edition === 'retail') params.set('gameVersionTypeId', '517');
-      const { data: files } = await json(`${forge}/mods/${id}/files?${params}`, source);
-      const file = files.filter((item) => item.releaseType === 1 && item.isAvailable
-        && compatible(item.gameVersions, client)).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      let file;
+      if (revision === undefined) {
+        file = await latestForgeFile(endpoint, client);
+      } else if (/^\d+$/.test(revision)) {
+        const candidate = (await revisionDetails(`${endpoint}/files/${revision}`, source))?.data;
+        if (compatibleForgeFile(candidate, client) && String(candidate.id) === revision) file = candidate;
+      }
       if (file) {
         const url = file.downloadUrl
-          || (await json(`${forge}/mods/${id}/files/${file.id}/download-url`, source)).data;
+          || (await json(`${endpoint}/files/${file.id}/download-url`, source)).data;
         if (!url) throw new Error('CurseForge has no downloadable file for this project.');
         const hash = file.hashes?.find(({ algo }) => algo === 1 || algo === 2);
         return { source, id, title: mod.name, version: file.displayName || file.fileName,
           time: Date.parse(file.fileDate), revision: String(file.id), url, hash: hash && [hash.algo === 1 ? 'sha1' : 'md5', hash.value] };
       }
+    }
+    if (revision !== undefined) {
+      throw new Error('The installed release is unavailable. Use Update to install the current release.');
     }
     throw new Error('No compatible release is available for this WoW client.');
   }
@@ -347,7 +389,7 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
   async function project(source, id, client) {
     if (source === 'wowup' && /^\d{1,12}$/.test(id)) {
       const { addon } = await cached(`${hub}/${id}`, source);
-      const files = hubFiles(addon);
+      const files = hubFiles(addon.releases);
       const latest = hubRelease(files, client);
       const changelog = latest?.body || (latest && await cached(`${hub}/${id}/releases/${latest.id}`, source)
         .then(({ release }) => release.body).catch(() => ''));
@@ -387,8 +429,8 @@ function newCatalog(key = process.env.CURSEFORGE_API_KEY?.trim(), fetcher = fetc
         json(`${endpoint}/description`, source).then(({ data }) => webText(data)).catch(() => ''),
       ]);
       if (mod.gameId !== 432) throw new Error('This is not a World of Warcraft addon.');
-      const latest = (mod.latestFiles || []).filter((file) => file.releaseType === 1 && file.isAvailable
-        && compatible(file.gameVersions, client)).sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
+      const latest = (mod.latestFiles || []).filter((file) => compatibleForgeFile(file, client))
+        .sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate))[0];
       const changelog = latest ? await json(`${endpoint}/files/${latest.id}/changelog`, source)
         .then(({ data }) => webText(data)).catch(() => '') : '';
       const entry = forgeEntry(mod);

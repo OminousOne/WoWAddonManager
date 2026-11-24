@@ -55,6 +55,8 @@ test('WowUp Hub searches the Forever catalog and selects stable downloads per cl
   const stable = { id: 252911, name: 'Questie.zip', published_at: '2026-11-21',
     game_versions: [{ game_type: 'forever', interface: '16001' }],
     download_url: 'https://github.com/Questie/Questie/releases/download/v1/Questie.zip' };
+  const older = { ...stable, id: 252910, published_at: '2026-11-20',
+    download_url: 'https://github.com/Questie/Questie/releases/download/v0/Questie.zip' };
   const questie = { id: 47671, repository_name: 'Questie', description: '<p>Quest helper</p>', releases: [
     { ...stable, id: 3, published_at: '2026-11-22', prerelease: true },
     { ...stable, id: 4, published_at: '2026-11-23', download_url: 'https://unrelated.example/Questie.zip' },
@@ -67,6 +69,7 @@ test('WowUp Hub searches the Forever catalog and selects stable downloads per cl
   const catalog = newCatalog('', async (url) => {
     assert.equal(url.host, 'hub.wowup.io');
     if (url.pathname === '/addons/47671/releases/252911') return Response.json({ release: { body: '<p>Fixes</p>' } });
+    if (url.pathname === '/addons/47671/releases/252910') return Response.json({ release: older });
     if (url.pathname === '/addons/47671') return Response.json({ addon: questie });
     if (url.pathname === '/addons/featured/forever') return Response.json({ addons: [questie, another] });
     assert.equal(url.pathname, '/addons/search/forever');
@@ -87,6 +90,9 @@ test('WowUp Hub searches the Forever catalog and selects stable downloads per cl
   assert.equal(detail.description, 'Quest helper');
   assert.equal(detail.changelog, 'Fixes');
   assert.equal((await catalog.release('wowup', '47671', forever)).revision, '252911');
+  const recorded = await catalog.release('wowup', '47671', forever, '252910');
+  assert.equal(recorded.revision, '252910');
+  assert.equal(recorded.url, older.download_url);
   await assert.rejects(catalog.release('wowup', '47671', { edition: 'era' }), /No compatible release/);
 });
 
@@ -165,6 +171,45 @@ test('CurseForge selects a stable compatible release and honors distribution per
   assert.equal((await catalog.release('curseforge', '11', client)).revision, '23');
   await assert.rejects(catalog.release('curseforge', '12', client), /unavailable for third-party/);
   assert.deepEqual(calls, ['/v1/mods/11', '/v1/mods/11/files', '/v1/mods/12']);
+});
+
+test('CurseForge follows file pagination and resolves a recorded historical release by ID', async () => {
+  const pages = [];
+  const latest = { id: 100, releaseType: 1, isAvailable: true, gameVersions: ['1.60.1'], fileDate: '2026-11-21',
+    downloadUrl: 'https://edge.forgecdn.net/latest.zip' };
+  const older = { ...latest, id: 25, fileDate: '2026-11-20', downloadUrl: 'https://edge.forgecdn.net/older.zip' };
+  const catalog = newCatalog('fixture-key', async (url) => {
+    switch (url.pathname) {
+      case '/v1/mods/11':
+        return Response.json({ data: { gameId: 432, name: 'Example' } });
+      case '/v1/mods/11/files': {
+        const index = Number(url.searchParams.get('index'));
+        pages.push(index);
+        assert.equal(url.searchParams.get('pageSize'), '50');
+        if (index === 0) {
+          const files = Array.from({ length: 50 }, (_, i) => ({ ...latest, id: 150 - i,
+            ...(i % 2 ? { gameVersions: ['1.15.9'] } : { releaseType: 2 }),
+          }));
+          return Response.json({ data: files, pagination: { index, pageSize: 50, resultCount: 50, totalCount: 51 } });
+        }
+        assert.equal(index, 50);
+        return Response.json({ data: [latest], pagination: { index, pageSize: 50, resultCount: 1, totalCount: 51 } });
+      }
+      case '/v1/mods/11/files/25':
+        return Response.json({ data: older });
+      case '/v1/mods/11/files/26':
+        return new Response(null, { status: 404 });
+      default:
+        assert.fail(`Unexpected request to ${url.pathname}`);
+    }
+  });
+  const client = { edition: 'forever' };
+  assert.equal((await catalog.release('curseforge', '11', client)).revision, '100');
+  const recorded = await catalog.release('curseforge', '11', client, '25');
+  assert.equal(recorded.revision, '25');
+  assert.equal(recorded.url, older.downloadUrl);
+  await assert.rejects(catalog.release('curseforge', '11', client, '26'), /installed release is unavailable/);
+  assert.deepEqual(pages, [0, 50]);
 });
 
 test('project links stay on the source’s HTTPS website', () => {

@@ -174,7 +174,7 @@ function createLibrary(store) {
   function install(client, catalog, source, id, mode = 'install', authorizeReplace) {
     return change(client, packageKey(source, id), async (paths, previous) => {
       if (mode === 'update' && previous.pinned) throw new Error('Unpin this addon before updating it.');
-      const file = await catalog.release(source, id, client);
+      const file = await catalog.release(source, id, client, mode === 'repair' ? previous.revision : undefined);
       if (mode === 'update' && !newer(previous, file)) throw new Error('This addon is already up to date.');
       if (mode === 'repair' && file.revision !== previous.revision) {
         throw new Error('The installed release is unavailable. Use Update to install the current release.');

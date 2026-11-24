@@ -103,20 +103,33 @@ test('checks for updates, protects pinned versions, repairs and removes grouped 
   const { client, library, live } = await fixture(t);
   const first = source({ 'Alpha/Alpha.toc': '## Version: 1.0', 'Beta/Beta.toc': '## Version: 1.0' });
   const next = source({ 'Alpha/Alpha.toc': '## Version: 2.0', 'Gamma/Gamma.toc': '## Version: 2.0' }, '2.0');
+  const catalog = {
+    release(provider, id, client, revision) {
+      return (revision === '1.0' ? first : next).release(provider, id, client);
+    },
+    download(file, destination) {
+      return (file.revision === '1.0' ? first : next).download(file, destination);
+    },
+  };
   const key = 'tukui:example';
   await library.install(client, first, 'tukui', 'example');
+  await library.pin(client, key, true);
   await fs.rm(path.join(live, 'Beta'), { recursive: true });
   assert.equal((await library.list(client))[0].damaged, true);
+  const available = [{ key, revision: '1.0', version: '2.0', status: 'available' }];
+  assert.deepEqual(await library.updates(client, catalog), available);
   await assert.rejects(library.refresh(client, next, key, 'repair'), /installed release is unavailable/);
-  await library.refresh(client, first, key, 'repair');
-  assert.equal((await library.list(client))[0].damaged, false);
-  assert.deepEqual(await library.updates(client, next), [
-    { key, revision: '1.0', version: '2.0', status: 'available' },
-  ]);
-  await library.pin(client, key, true);
-  await assert.rejects(library.refresh(client, next, key, 'update'), /Unpin/);
+  await library.refresh(client, catalog, key, 'repair');
+  const [repaired] = await library.list(client);
+  assert.equal(repaired.damaged, false);
+  assert.equal(repaired.revision, '1.0');
+  assert.equal(repaired.pinned, true);
+  assert.deepEqual((await fs.readdir(live)).sort(), ['Alpha', 'Beta']);
+  assert.equal(await fs.readFile(path.join(live, 'Beta', 'Beta.toc'), 'utf8'), '## Version: 1.0');
+  assert.deepEqual(await library.updates(client, catalog), available);
+  await assert.rejects(library.refresh(client, catalog, key, 'update'), /Unpin/);
   await library.pin(client, key, false);
-  await library.refresh(client, next, key, 'update');
+  await library.refresh(client, catalog, key, 'update');
   assert.deepEqual((await fs.readdir(live)).sort(), ['Alpha', 'Gamma']);
   assert.equal((await library.list(client))[0].version, '2.0');
   await library.remove(client, key);
