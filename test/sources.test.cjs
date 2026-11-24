@@ -59,6 +59,7 @@ test('WowUp Hub searches the Forever catalog and selects stable downloads per cl
     { ...stable, id: 3, published_at: '2026-11-22', prerelease: true },
     { ...stable, id: 4, published_at: '2026-11-23', download_url: 'https://unrelated.example/Questie.zip' },
     stable,
+    { ...stable, id: 252900, published_at: '2026-11-01' },
   ] };
   const another = { id: 275, repository_name: 'Better Vendor Price', releases: [
     { ...stable, id: 7, name: 'BetterVendorPrice.zip',
@@ -87,6 +88,8 @@ test('WowUp Hub searches the Forever catalog and selects stable downloads per cl
   assert.equal(detail.description, 'Quest helper');
   assert.equal(detail.changelog, 'Fixes');
   assert.equal((await catalog.release('wowup', '47671', forever)).revision, '252911');
+  assert.equal((await catalog.release('wowup', '47671', forever, '252900')).revision, '252900');
+  await assert.rejects(catalog.release('wowup', '47671', forever, '3'), /installed release is unavailable/);
   await assert.rejects(catalog.release('wowup', '47671', { edition: 'era' }), /No compatible release/);
 });
 
@@ -223,4 +226,24 @@ test('addon images enforce source hosts, redirect boundaries, and raster types',
   await assert.rejects(catalogImage('tukui', sample, async () => new Response('<svg/>', {
     headers: { 'Content-Type': 'image/svg+xml' },
   })), /Unsupported addon image/);
+});
+
+test('CurseForge selects a stable compatible release from a later file page', async () => {
+  const offsets = [];
+  const catalog = newCatalog('fixture-key', async (url) => {
+    if (!url.pathname.endsWith('/files')) {
+      return Response.json({ data: { gameId: 432, name: 'Example', allowModDistribution: true } });
+    }
+    const index = Number(url.searchParams.get('index'));
+    offsets.push(index);
+    const data = index === 0 ? Array.from({ length: 50 }, (_, i) => ({
+      id: 100 - i, releaseType: 1, isAvailable: true, gameVersions: ['5.5.4'], fileDate: '2026-03-01',
+    })) : [{
+      id: 50, releaseType: 1, isAvailable: true, gameVersions: ['1.60.1'], fileDate: '2026-02-01',
+      downloadUrl: 'https://edge.forgecdn.net/example.zip', displayName: 'Example v1',
+    }];
+    return Response.json({ data, pagination: { index, pageSize: 50, resultCount: data.length, totalCount: 51 } });
+  });
+  assert.equal((await catalog.release('curseforge', '11', { edition: 'forever' })).revision, '50');
+  assert.deepEqual(offsets, [0, 50]);
 });
