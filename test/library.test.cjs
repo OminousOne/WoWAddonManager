@@ -7,6 +7,7 @@ const test = require('node:test');
 const { pipeline } = require('node:stream/promises');
 const { ZipFile } = require('yazl');
 const { createLibrary } = require('../src/main/library.cjs');
+const { newCatalog } = require('../src/main/sources.cjs');
 const { openStore } = require('../src/main/store.cjs');
 
 async function fixture(t) {
@@ -122,6 +123,45 @@ test('checks for updates, protects pinned versions, repairs and removes grouped 
   await library.remove(client, key);
   assert.deepEqual(await library.list(client), []);
   assert.deepEqual(await fs.readdir(live), []);
+});
+
+test('repairs the installed CurseForge file when a newer release is available', async (t) => {
+  const { client, library, live } = await fixture(t);
+  const archive = path.join(client.directory, 'Example.zip');
+  const betaToc = '## Version: 1.0';
+  await source({ 'Alpha/Alpha.toc': '## Version: 1.0', 'Beta/Beta.toc': betaToc }).download(null, archive);
+  const archiveContents = await fs.readFile(archive);
+  const installed = { id: 1, releaseType: 1, isAvailable: true, gameVersions: ['12.1.5'], fileDate: '2026-01-01',
+    displayName: 'Example v1', downloadUrl: 'https://edge.forgecdn.net/example-v1.zip' };
+  const latest = { ...installed, id: 2, fileDate: '2026-02-01', displayName: 'Example v2',
+    downloadUrl: 'https://edge.forgecdn.net/example-v2.zip' };
+  const files = [installed];
+  const calls = [];
+  const catalog = newCatalog('fixture-key', async (url) => {
+    calls.push(url.pathname);
+    if (url.pathname === '/v1/mods/11') return Response.json({ data: { gameId: 432, name: 'Example' } });
+    if (url.pathname === '/v1/mods/11/files') return Response.json({ data: files });
+    if (url.pathname === '/v1/mods/11/files/1') return Response.json({ data: installed });
+    if (url.href === installed.downloadUrl) return new Response(archiveContents);
+    return new Response(null, { status: 404 });
+  });
+  const key = 'curseforge:11';
+  await library.install(client, catalog, 'curseforge', '11');
+  await library.pin(client, key, true);
+  await fs.rm(path.join(live, 'Beta'), { recursive: true });
+  files.unshift(latest);
+  assert.deepEqual(await library.updates(client, catalog), [
+    { key, revision: '1', version: 'Example v2', status: 'available' },
+  ]);
+
+  calls.length = 0;
+  await library.refresh(client, catalog, key, 'repair');
+  assert.deepEqual(calls, ['/v1/mods/11', '/v1/mods/11/files/1', '/example-v1.zip']);
+  const [addon] = await library.list(client);
+  assert.equal(addon.revision, '1');
+  assert.equal(addon.pinned, true);
+  assert.equal(addon.damaged, false);
+  assert.equal(await fs.readFile(path.join(live, 'Beta', 'Beta.toc'), 'utf8'), betaToc);
 });
 
 test('imports local archives without associating them with an online catalog', async (t) => {
