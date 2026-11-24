@@ -111,12 +111,18 @@ async function discoverInstallations(roots) {
       const flavor = flavorFile && (await readSmall(path.join(directory, flavorFile.name), 2048).catch(() => ''))
         .match(/^\s*(wow[a-z0-9_]*)\s*(?:\||$)/im)?.[1]?.toLowerCase();
       const localVersions = metadata && buildVersions(await readSmall(path.join(directory, metadata.name)).catch(() => ''));
-      const version = versions.get(flavor) || localVersions?.get(flavor)
+      let version = versions.get(flavor) || localVersions?.get(flavor)
         || versions.get(product) || localVersions?.get(product) || null;
-      const track = gameTrack(edition, version);
       const id = await fs.realpath(directory).catch(() => null);
+      if (!id) continue;
+      const resolvedParent = path.dirname(id);
+      if (!version && resolvedParent !== root) {
+        const resolvedVersions = buildVersions(await readSmall(path.join(resolvedParent, '.build.info')).catch(() => ''));
+        version = resolvedVersions.get(flavor) || resolvedVersions.get(product) || null;
+      }
+      const track = gameTrack(edition, version);
       const existing = found.get(id);
-      if (id && (!existing || (!existing.version && version))) {
+      if (!existing || (!existing.version && version)) {
         found.set(id, { id, directory: id, label, edition: track, version });
       }
     }
